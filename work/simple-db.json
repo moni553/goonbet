@@ -1,0 +1,46 @@
+{
+  "accounts": [
+    {
+      "id": "0a36bf80-047c-4d72-ae66-1eb7d063a21a",
+      "email": "test@example.com",
+      "name": "Test User",
+      "createdAt": "2026-06-05T15:11:14.829Z"
+    },
+    {
+      "id": "f589deb2-bef1-4121-849d-41fa5ff05528",
+      "email": "livetest@example.com",
+      "name": "Live Test",
+      "createdAt": "2026-06-05T15:23:06.446Z"
+    }
+  ],
+  "bets": [
+    {
+      "id": "4ff1aa75-920b-47f3-97d2-641ee91a949e",
+      "email": "test@example.com",
+      "matchId": "w1-001",
+      "selection": "HOME",
+      "selectionLabel": "Mexico win",
+      "home": "Mexico",
+      "away": "Japan",
+      "kickoff": "2026-06-11T19:00:00Z",
+      "stake": 50,
+      "odds": 2.12,
+      "placedAt": "2026-06-05T15:11:14.834Z"
+    },
+    {
+      "id": "4183aec2-d3fc-4425-84ac-8b3602104a0f",
+      "email": "livetest@example.com",
+      "matchId": "w1-001",
+      "selection": "HOME",
+      "selectionLabel": "Mexico win",
+      "home": "Mexico",
+      "away": "Japan",
+      "kickoff": "2026-06-11T19:00:00Z",
+      "bookmaker": "Pinnacle",
+      "odds": 2.12,
+      "oddsSource": "Demo odds fallback",
+      "placedAt": "2026-06-05T15:23:06.522Z",
+      "stake": 75
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: goonbet
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: FOOTBALL_DATA_API_TOKEN
+        sync: false
+      - key: FOOTBALL_DATA_COMPETITION
+        value: WC
+      - key: THE_ODDS_API_KEY
+        sync: false
+      - key: ODDS_API_SPORT_KEY
+        value: soccer_fifa_world_cup
+      - key: ODDS_API_REGIONS
+        value: eu
+      - key: ODDS_API_BOOKMAKERS
+        value: pinnacle,betfair,bet365
+      - key: MATCH_LOOKAHEAD_DAYS
+        value: "21"
+      - key: CACHE_TTL_SECONDS
+        value: "300"

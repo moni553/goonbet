@@ -1,0 +1,359 @@
+:root {
+  --bg: #f2f0e8;
+  --paper: rgba(255, 252, 244, 0.94);
+  --paper-strong: #fffdf7;
+  --line: rgba(34, 44, 36, 0.12);
+  --ink: #172018;
+  --muted: #5f675f;
+  --accent: #1e7048;
+  --accent-strong: #0f4e30;
+  --gold: #ddb75f;
+  --danger: #bf5e45;
+  --shadow: 0 24px 40px rgba(27, 33, 24, 0.08);
+  --font-display: "Aptos Display", "Trebuchet MS", sans-serif;
+  --font-body: "Segoe UI Variable", "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  font-family: var(--font-body);
+  background:
+    radial-gradient(circle at top right, rgba(221, 183, 95, 0.22), transparent 20rem),
+    linear-gradient(180deg, #f8f6ef 0%, #f2f0e8 100%);
+}
+
+.page-shell {
+  width: min(1180px, calc(100% - 1.5rem));
+  margin: 0 auto;
+  padding: 1rem 0 2rem;
+}
+
+.hero,
+.panel {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 1.5rem;
+  box-shadow: var(--shadow);
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: 1.4fr 0.8fr;
+  gap: 1rem;
+  padding: 1.2rem;
+}
+
+.hero-copy,
+.hero-panel,
+.panel {
+  padding: 1rem;
+}
+
+.eyebrow,
+.section-kicker {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.hero h1,
+.section-head h2 {
+  margin: 0.35rem 0 0;
+  font-family: var(--font-display);
+  line-height: 0.95;
+}
+
+.hero h1 {
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+}
+
+.section-head h2 {
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
+}
+
+.hero-text,
+.muted {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.hero-stats,
+.main-grid,
+.side-stack,
+.match-list,
+.bet-list,
+.quotes-list,
+.week-tabs,
+.section-head,
+.match-top,
+.odds-grid,
+.bet-row,
+.stack-form {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.hero-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 1.2rem;
+}
+
+.stat-card,
+.match-card,
+.bet-card,
+.account-card {
+  background: var(--paper-strong);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  padding: 0.9rem;
+}
+
+.stat-card strong,
+.match-card h3,
+.bet-card h3 {
+  font-family: var(--font-display);
+}
+
+.stat-card span {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.main-grid {
+  grid-template-columns: 1.35fr 0.75fr;
+  margin-top: 1rem;
+}
+
+.side-stack {
+  align-content: start;
+}
+
+.section-head {
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  margin-bottom: 1rem;
+}
+
+.search-block {
+  min-width: min(18rem, 100%);
+}
+
+.field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.field span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+input {
+  min-height: 2.9rem;
+  padding: 0 0.9rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(23, 32, 24, 0.14);
+  background: #ffffff;
+  font: inherit;
+  color: var(--ink);
+}
+
+.button {
+  min-height: 2.8rem;
+  padding: 0 1rem;
+  border-radius: 999px;
+  border: 0;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.button.primary {
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+}
+
+.button.secondary {
+  color: var(--ink);
+  background: rgba(23, 32, 24, 0.06);
+  border: 1px solid rgba(23, 32, 24, 0.1);
+}
+
+.button.ghost {
+  color: var(--muted);
+  background: transparent;
+  border: 1px dashed rgba(23, 32, 24, 0.14);
+}
+
+.hidden {
+  display: none !important;
+}
+
+.week-tabs {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 1rem;
+}
+
+.week-chip {
+  min-height: 3rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(23, 32, 24, 0.12);
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.week-chip.active {
+  border-color: rgba(30, 112, 72, 0.35);
+  background: rgba(30, 112, 72, 0.08);
+}
+
+.week-chip strong,
+.week-chip span {
+  display: block;
+}
+
+.week-chip span {
+  color: var(--muted);
+  font-size: 0.86rem;
+  margin-top: 0.25rem;
+}
+
+.match-card {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.match-top {
+  grid-template-columns: 1fr auto;
+  align-items: start;
+}
+
+.match-top h3 {
+  margin: 0;
+  font-size: 1.22rem;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0 0.7rem;
+  border-radius: 999px;
+  background: rgba(221, 183, 95, 0.18);
+  color: #7a5f1d;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.match-meta,
+.small-note {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.odds-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.odd-button {
+  padding: 0.8rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(23, 32, 24, 0.1);
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.odd-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.odd-button strong,
+.odd-button span {
+  display: block;
+}
+
+.odd-button span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.stake-bar {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.8rem;
+  align-items: end;
+}
+
+.bet-card h3 {
+  margin: 0;
+  font-size: 1.02rem;
+}
+
+.bet-row {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.quote-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  padding-top: 0.45rem;
+  margin-top: 0.45rem;
+  border-top: 1px solid rgba(23, 32, 24, 0.08);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.quote-row strong {
+  color: var(--ink);
+  font-size: 0.88rem;
+}
+
+.amount-good {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.amount-bad {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.empty-state {
+  padding: 1rem;
+  border-radius: 1rem;
+  background: rgba(23, 32, 24, 0.04);
+  color: var(--muted);
+}
+
+@media (max-width: 980px) {
+  .hero,
+  .main-grid,
+  .section-head,
+  .stake-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-stats,
+  .week-tabs,
+  .odds-grid {
+    grid-template-columns: 1fr;
+  }
+}

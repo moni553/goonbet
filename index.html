@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GoonBet | Public World Cup Betting Board</title>
+    <link rel="stylesheet" href="./styles.css?v=goonbet-supabase-1" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Public World Cup Pool</p>
+          <h1>GoonBet</h1>
+          <p id="hero-text" class="hero-text"></p>
+          <div id="hero-stats" class="hero-stats"></div>
+        </div>
+        <aside class="hero-panel">
+          <h2>Bet Account</h2>
+          <p class="muted">Anyone can browse the board. To place fake-money bets, sign in with an email link.</p>
+          <form id="login-form" class="stack-form">
+            <label class="field" for="name-input">
+              <span>Name</span>
+              <input id="name-input" type="text" placeholder="Your name" />
+            </label>
+            <label class="field" for="email-input">
+              <span>Email</span>
+              <input id="email-input" type="email" placeholder="you@example.com" />
+            </label>
+            <button class="button primary" type="submit">Send sign-in link</button>
+          </form>
+          <div id="auth-status" class="small-note"></div>
+          <div id="account-card" class="account-card"></div>
+        </aside>
+      </header>
+
+      <main class="main-grid">
+        <section class="panel">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">Matches</p>
+              <h2>Upcoming weekly board</h2>
+            </div>
+            <div class="search-block">
+              <label class="field" for="search-input">
+                <span>Search matches</span>
+                <input id="search-input" type="search" placeholder="Search by team, group, or week" />
+              </label>
+            </div>
+          </div>
+          <div id="week-tabs" class="week-tabs"></div>
+          <div id="match-list" class="match-list"></div>
+        </section>
+
+        <aside class="side-stack">
+          <section class="panel">
+            <div class="section-head">
+              <div>
+                <p class="section-kicker">Your account</p>
+                <h2>My bets</h2>
+              </div>
+            </div>
+            <div id="my-bets" class="bet-list"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script src="./app-config.js?v=goonbet-supabase-1"></script>
+    <script type="module" src="./app.js?v=goonbet-supabase-1"></script>
+  </body>
+</html>

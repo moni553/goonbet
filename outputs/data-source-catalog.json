@@ -1,0 +1,215 @@
+{
+  "accessMatrix": {
+    "public": [
+      {
+        "title": "Homepage",
+        "copy": "Anyone can open the public landing page and see how the tournament works."
+      },
+      {
+        "title": "Fixtures",
+        "copy": "Match list, current scores, and betting markets can be browsed without logging in."
+      },
+      {
+        "title": "Leaderboard",
+        "copy": "People can follow the standings and bragging-rights race without getting player-level secrets."
+      }
+    ],
+    "private": [
+      {
+        "title": "Place bets",
+        "copy": "Only invited friends with approved emails can submit or edit allowed bets before kickoff."
+      },
+      {
+        "title": "Personal history",
+        "copy": "Each player can see their own bankroll, slip history, and pending exposure."
+      },
+      {
+        "title": "Admin tools",
+        "copy": "Only the commissioner sees invite management, odds settings, and manual override tools."
+      }
+    ]
+  },
+  "generatedAt": "2026-06-05T14:43:54.138Z",
+  "inviteFlow": [
+    {
+      "title": "Share the public URL",
+      "copy": "You post the public site link in the group so everybody can follow the competition."
+    },
+    {
+      "title": "Collect bettor emails",
+      "copy": "Only the friends who should actually play are added to the invited members list."
+    },
+    {
+      "title": "Send Magic Link access",
+      "copy": "Supabase emails each invited bettor a one-time sign-in link tied to your allowed redirect URLs."
+    },
+    {
+      "title": "Enforce membership at the database layer",
+      "copy": "Even after sign-in, bet writes only work if the logged-in user belongs to the tournament."
+    }
+  ],
+  "providerRegistry": [
+    {
+      "id": "sportmonks",
+      "name": "Sportmonks",
+      "role": "Primary live feed",
+      "bestFor": "Real-time scores, lineups, live standings, and fast match status updates",
+      "cadence": "Every 60 seconds on match days, daily full sync at 06:00",
+      "copy": "This is the main data-mining source for the live version. It powers the matches table, live scoreboard refresh, and auto-settlement trigger.",
+      "fields": [
+        "fixture id",
+        "kickoff",
+        "status",
+        "participants",
+        "scores",
+        "events",
+        "lineups"
+      ],
+      "endpoints": [
+        {
+          "label": "Live delta feed",
+          "path": "/v3/football/livescores/latest?filters=fixtureLeagues:732"
+        },
+        {
+          "label": "All live fixtures",
+          "path": "/v3/football/livescores?filters=fixtureLeagues:732"
+        },
+        {
+          "label": "Single fixture detail",
+          "path": "/v3/football/fixtures/{fixtureId}?include=events;scores;participants;lineups"
+        }
+      ]
+    },
+    {
+      "id": "football-data",
+      "name": "football-data.org",
+      "role": "Fallback / budget feed",
+      "bestFor": "Cheaper MVP, delayed schedules, and low-frequency results sync",
+      "cadence": "Morning sync plus slower checks during match windows",
+      "copy": "This is the cheaper backup source. It is enough for fixture import and delayed result updates when you do not need a strong live experience.",
+      "fields": [
+        "competition code",
+        "match id",
+        "utc date",
+        "status",
+        "home team",
+        "away team",
+        "full-time score"
+      ],
+      "endpoints": [
+        {
+          "label": "Competition matches",
+          "path": "/v4/competitions/WC/matches"
+        },
+        {
+          "label": "Standings",
+          "path": "/v4/competitions/WC/standings"
+        },
+        {
+          "label": "Single match",
+          "path": "/v4/matches/{matchId}"
+        }
+      ]
+    }
+  ],
+  "providerSamples": {
+    "sportmonks": {
+      "source": "Sportmonks latest livescores",
+      "request": {
+        "method": "GET",
+        "endpoint": "https://api.sportmonks.com/v3/football/livescores/latest?api_token=YOUR_TOKEN&filters=fixtureLeagues:732&include=scores;participants;events;lineups"
+      },
+      "minedFields": {
+        "fixtureId": 19609149,
+        "kickoff": "2026-06-12T20:00:00Z",
+        "state": "LIVE",
+        "homeTeam": "Brazil",
+        "awayTeam": "Serbia",
+        "score": "2-1",
+        "events": [
+          "goal",
+          "yellow_card",
+          "substitution"
+        ]
+      },
+      "normalizedRecord": {
+        "provider": "sportmonks",
+        "providerMatchId": "19609149",
+        "status": "LIVE",
+        "homeTeam": "Brazil",
+        "awayTeam": "Serbia",
+        "homeScore": 2,
+        "awayScore": 1
+      }
+    },
+    "footballData": {
+      "source": "football-data.org competition matches",
+      "request": {
+        "method": "GET",
+        "endpoint": "https://api.football-data.org/v4/competitions/WC/matches",
+        "headers": {
+          "X-Auth-Token": "YOUR_TOKEN"
+        }
+      },
+      "minedFields": {
+        "competitionCode": "WC",
+        "matchId": 503812,
+        "utcDate": "2026-06-13T22:00:00Z",
+        "status": "SCHEDULED",
+        "homeTeam": "Spain",
+        "awayTeam": "South Korea",
+        "score": {
+          "fullTime": {
+            "home": null,
+            "away": null
+          }
+        }
+      },
+      "normalizedRecord": {
+        "provider": "football-data",
+        "providerMatchId": "503812",
+        "status": "SCHEDULED",
+        "homeTeam": "Spain",
+        "awayTeam": "South Korea",
+        "homeScore": null,
+        "awayScore": null
+      }
+    }
+  },
+  "sharingPlan": [
+    {
+      "title": "Public link",
+      "copy": "Share one public URL in WhatsApp, Discord, Instagram bio, or your group chat. Everyone can open it."
+    },
+    {
+      "title": "Custom domain",
+      "copy": "Move from the Vercel subdomain to something like play.banterbank.app once branding matters."
+    },
+    {
+      "title": "Invite-only betting",
+      "copy": "Bettors still need a Magic Link sign-in and a membership row in the tournament members table."
+    }
+  ],
+  "syncBlueprint": [
+    {
+      "id": "fixture-sync",
+      "title": "Fixture sync",
+      "copy": "Pull all World Cup fixtures into your database every morning before people wake up."
+    },
+    {
+      "id": "live-sync",
+      "title": "Live sync",
+      "copy": "Use the provider delta feed to mine only changed match records while games are active."
+    },
+    {
+      "id": "status-lock",
+      "title": "Status lock",
+      "copy": "As soon as kickoff is reached, the match flips to locked and the bet form disables itself."
+    },
+    {
+      "id": "settlement",
+      "title": "Settlement",
+      "copy": "When the provider marks a fixture final, all open bets for that match are graded immediately."
+    }
+  ]
+}
