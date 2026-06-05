@@ -93,7 +93,7 @@ execute procedure public.handle_new_user();
 
 grant usage on schema public to authenticated;
 grant select, insert, update on public.profiles to authenticated;
-grant select, insert on public.bets to authenticated;
+grant select, insert, delete on public.bets to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.bets enable row level security;
@@ -133,3 +133,10 @@ on public.bets
 for insert
 to authenticated
 with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can delete unlocked bets" on public.bets;
+create policy "Users can delete unlocked bets"
+on public.bets
+for delete
+to authenticated
+using ((select auth.uid()) = user_id and kickoff > now());

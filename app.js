@@ -672,6 +672,10 @@ function selectionLabel(match, selection, marketType) {
   return "Draw";
 }
 
+function canDeleteBet(bet) {
+  return new Date(bet.kickoff).getTime() > Date.now();
+}
+
 async function placeBet(match, selection, stake, marketType) {
   if (!state.account || !state.supabase) {
     return;
@@ -740,6 +744,38 @@ async function placeBet(match, selection, stake, marketType) {
   renderApp();
 }
 
+async function removeBet(bet) {
+  if (!state.account || !state.supabase) {
+    return;
+  }
+
+  if (!canDeleteBet(bet)) {
+    alert("That match has already started, so the bet is locked.");
+    return;
+  }
+
+  const confirmed = confirm(`Remove this bet on ${bet.selectionLabel}?`);
+  if (!confirmed) {
+    return;
+  }
+
+  const { error } = await state.supabase.from("bets").delete().eq("id", bet.id);
+
+  if (error) {
+    if (/row-level security|policy|permission/i.test(error.message)) {
+      alert("This bet is already locked because kickoff has passed, or your database rules still need the latest schema update.");
+      return;
+    }
+
+    alert(error.message);
+    return;
+  }
+
+  state.bets = state.bets.filter((item) => item.id !== bet.id);
+  setAuthMessage("Bet removed.");
+  renderApp();
+}
+
 function renderMyBets() {
   const container = document.getElementById("my-bets");
 
@@ -790,10 +826,33 @@ function renderMyBets() {
             <span>Stake</span>
             <strong>${escapeHtml(formatMoney(bet.stake))}</strong>
           </div>
+          <div class="bet-row">
+            <span>Status</span>
+            <strong>${canDeleteBet(bet) ? "Editable" : "Locked"}</strong>
+          </div>
+          ${
+            canDeleteBet(bet)
+              ? `
+                <button class="button ghost" type="button" data-delete-bet="${escapeHtml(bet.id)}">
+                  Remove bet
+                </button>
+              `
+              : `<div class="small-note">Kickoff has passed, so this bet cannot be removed.</div>`
+          }
         </article>
       `,
     )
     .join("");
+
+  document.querySelectorAll("[data-delete-bet]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const bet = state.bets.find((item) => item.id === button.dataset.deleteBet);
+      if (!bet) {
+        return;
+      }
+      await removeBet(bet);
+    });
+  });
 }
 
 async function fetchJson(url, options) {
