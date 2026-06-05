@@ -10,7 +10,7 @@ export const simpleConfig = {
   pendingNameStorageKey: "goonbet-pending-name",
   startingBankroll: 200,
   tagline:
-    "Public weekly match board, real live coefficients when provider keys are configured, and simple email-link betting accounts powered by Supabase.",
+    "Public weekly match board, real live coefficients when provider keys are configured, and simple username-plus-password betting accounts powered by Supabase.",
 };
 
 export const demoMatches = [

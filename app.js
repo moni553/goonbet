@@ -1,8 +1,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
 import { demoMatches, simpleConfig } from "./data/simple-app-data.js";
 
+const USERNAME_PATTERN = /^[a-z0-9][a-z0-9_-]{2,23}$/;
+const USERNAME_EMAIL_DOMAIN = "players.goonbet.app";
+
 const state = {
   account: null,
+  authBusy: false,
   authMessage: "",
   bets: [],
   matches: [],
@@ -105,16 +109,37 @@ function formatKickoff(value) {
   }).format(new Date(value));
 }
 
-function savePendingName(name) {
-  localStorage.setItem(simpleConfig.pendingNameStorageKey, name);
+function normalizeUsername(rawValue) {
+  return String(rawValue || "")
+    .trim()
+    .toLowerCase();
 }
 
-function readPendingName() {
-  return localStorage.getItem(simpleConfig.pendingNameStorageKey) || "";
+function usernameToEmail(username) {
+  return `${username}@${USERNAME_EMAIL_DOMAIN}`;
 }
 
-function clearPendingName() {
-  localStorage.removeItem(simpleConfig.pendingNameStorageKey);
+function emailToUsername(emailValue) {
+  return String(emailValue || "").split("@")[0] || "player";
+}
+
+function readCredentialsFromForm() {
+  const username = normalizeUsername(document.getElementById("username-input").value);
+  const password = document.getElementById("password-input").value.trim();
+
+  if (!USERNAME_PATTERN.test(username)) {
+    throw new Error("Username must be 3-24 characters using letters, numbers, _ or -.");
+  }
+
+  if (password.length < 6) {
+    throw new Error("Password must be at least 6 characters.");
+  }
+
+  return {
+    email: usernameToEmail(username),
+    password,
+    username,
+  };
 }
 
 function totalStakeForAccount() {
@@ -180,6 +205,15 @@ function renderAuthStatus() {
   document.getElementById("auth-status").textContent = state.authMessage;
 }
 
+function setAuthBusy(isBusy) {
+  state.authBusy = isBusy;
+  const form = document.getElementById("login-form");
+  const inputs = form.querySelectorAll("input, button");
+  inputs.forEach((input) => {
+    input.disabled = isBusy || !state.supabaseConfigured;
+  });
+}
+
 function syncHero() {
   const liveCopy = state.meta.usingDemoFallback
     ? "Demo fallback is active right now. Add live provider keys to switch the public board onto real fixtures and coefficients."
@@ -188,8 +222,8 @@ function syncHero() {
   const betCopy = !state.supabaseConfigured
     ? "Betting is offline until Supabase public keys are configured."
     : state.account
-      ? `${state.account.name} is signed in and ready to bet.`
-      : "Public viewing is open; betting unlocks after email-link sign-in.";
+      ? `${state.account.username} is signed in and ready to bet.`
+      : "Public viewing is open; betting unlocks after username and password login.";
 
   document.getElementById("hero-text").textContent = simpleConfig.tagline;
   document.getElementById("hero-stats").innerHTML = [
@@ -223,13 +257,10 @@ function syncHero() {
 
 function renderAuthControls() {
   const form = document.getElementById("login-form");
-  const inputs = form.querySelectorAll("input, button");
   const isLoggedIn = Boolean(state.account);
 
   form.classList.toggle("hidden", isLoggedIn);
-  inputs.forEach((input) => {
-    input.disabled = !state.supabaseConfigured;
-  });
+  setAuthBusy(state.authBusy);
 
   if (!state.supabaseConfigured) {
     setAuthMessage("Add SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY to enable real accounts.");
@@ -239,7 +270,7 @@ function renderAuthControls() {
   if (isLoggedIn) {
     setAuthMessage("");
   } else if (!state.authMessage) {
-    setAuthMessage("Use your email and we will send you a sign-in link.");
+    setAuthMessage("Create a username and password, or log in with the one you already made.");
   }
 }
 
@@ -258,7 +289,7 @@ function renderAccount() {
   if (!state.account) {
     card.innerHTML = `
       <div class="small-note">
-        Guests can browse every weekly match. Bettors sign in through the email link and then place one fake-money bet per match.
+        Guests can browse every weekly match. Bettors create a username and password, then place one fake-money bet per match.
       </div>
     `;
     return;
@@ -267,11 +298,11 @@ function renderAccount() {
   card.innerHTML = `
     <div class="bet-row">
       <span>Signed in as</span>
-      <strong>${escapeHtml(state.account.name)}</strong>
+      <strong>${escapeHtml(state.account.username)}</strong>
     </div>
     <div class="bet-row">
-      <span>Email</span>
-      <strong>${escapeHtml(state.account.email)}</strong>
+      <span>Profile name</span>
+      <strong>${escapeHtml(state.account.name)}</strong>
     </div>
     <div class="bet-row">
       <span>Starting bankroll</span>
@@ -302,7 +333,7 @@ function renderAccount() {
     state.account = null;
     state.bets = [];
     renderApp();
-    setAuthMessage("Signed out. The board is still public, and you can sign back in any time.");
+    setAuthMessage("Signed out. You can log back in with your username and password any time.");
   });
 }
 
@@ -418,7 +449,7 @@ function renderMatches() {
                 existing
                   ? `Already bet: ${escapeHtml(existing.selectionLabel)} at ${existing.odds.toFixed(2)}`
                   : !state.account
-                    ? "Sign in first to place a bet."
+                    ? "Log in first to place a bet."
                     : !match.odds.HOME
                       ? "Fixture loaded, but there are no live 1X2 prices yet."
                       : "Tap an outcome to place your bet."
@@ -516,7 +547,7 @@ function renderMyBets() {
   }
 
   if (!state.account) {
-    container.innerHTML = `<div class="empty-state">Sign in to see your personal bet list and bankroll.</div>`;
+    container.innerHTML = `<div class="empty-state">Log in to see your personal bet list and bankroll.</div>`;
     return;
   }
 
@@ -587,12 +618,17 @@ async function loadMatches() {
   }
 }
 
-async function ensureProfile(user) {
-  const displayName =
-    readPendingName() ||
+function deriveProfileName(user) {
+  return (
+    user.user_metadata?.username ||
     user.user_metadata?.display_name ||
-    user.email?.split("@")[0] ||
-    "Player";
+    emailToUsername(user.email) ||
+    "player"
+  );
+}
+
+async function ensureProfile(user) {
+  const displayName = deriveProfileName(user);
 
   const { data, error } = await state.supabase
     .from("profiles")
@@ -640,9 +676,9 @@ async function syncSession(session) {
     email: profile.email,
     id: profile.id,
     name: profile.display_name,
+    username: deriveProfileName(session.user),
   };
   state.bets = await loadBets();
-  clearPendingName();
   setAuthMessage("");
   renderApp();
 }
@@ -681,46 +717,98 @@ async function setupSupabase() {
   await syncSession(session);
 }
 
-async function submitLogin(event) {
-  event.preventDefault();
-
+async function submitCreateAccount() {
   if (!state.supabaseConfigured || !state.supabase) {
     return;
   }
 
-  const name = document.getElementById("name-input").value.trim();
-  const email = document.getElementById("email-input").value.trim().toLowerCase();
+  const credentials = readCredentialsFromForm();
+  setAuthBusy(true);
+  setAuthMessage(`Creating account for ${credentials.username}...`);
 
-  if (!name || !email) {
-    alert("Enter both a name and an email.");
-    return;
-  }
-
-  savePendingName(name);
-  setAuthMessage(`Sending a sign-in link to ${email}...`);
-
-  const redirectTo = `${window.location.origin}${window.location.pathname}`;
-  const { error } = await state.supabase.auth.signInWithOtp({
-    email,
-    options: {
-      data: {
-        display_name: name,
+  try {
+    const { data, error } = await state.supabase.auth.signUp({
+      email: credentials.email,
+      password: credentials.password,
+      options: {
+        data: {
+          display_name: credentials.username,
+          username: credentials.username,
+        },
       },
-      emailRedirectTo: redirectTo,
-    },
-  });
+    });
 
-  if (error) {
-    setAuthMessage(error.message);
+    if (error) {
+      if (/already registered/i.test(error.message)) {
+        setAuthMessage("That username already exists. Try logging in instead.");
+        return;
+      }
+
+      setAuthMessage(error.message);
+      return;
+    }
+
+    if (!data.session) {
+      setAuthMessage(
+        "Account created, but Supabase still requires email confirmation. In Supabase Auth Providers, turn off Confirm email for password logins, then try logging in.",
+      );
+      return;
+    }
+
+    await syncSession(data.session);
+    setAuthMessage(`Account created. You are now signed in as ${credentials.username}.`);
+  } finally {
+    setAuthBusy(false);
+  }
+}
+
+async function submitPasswordLogin() {
+  if (!state.supabaseConfigured || !state.supabase) {
     return;
   }
 
-  setAuthMessage(`Sign-in link sent to ${email}. Open the email and tap the link to come back in.`);
+  const credentials = readCredentialsFromForm();
+  setAuthBusy(true);
+  setAuthMessage(`Logging in as ${credentials.username}...`);
+
+  try {
+    const { data, error } = await state.supabase.auth.signInWithPassword({
+      email: credentials.email,
+      password: credentials.password,
+    });
+
+    if (error) {
+      setAuthMessage("Wrong username or password.");
+      return;
+    }
+
+    await syncSession(data.session);
+    setAuthMessage(`Signed in as ${credentials.username}.`);
+  } finally {
+    setAuthBusy(false);
+  }
 }
 
 function attachEvents() {
-  document.getElementById("login-form").addEventListener("submit", (event) => {
-    submitLogin(event).catch((error) => {
+  const form = document.getElementById("login-form");
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitPasswordLogin().catch((error) => {
+      setAuthBusy(false);
+      setAuthMessage(error.message);
+    });
+  });
+
+  document.getElementById("create-account-button").addEventListener("click", () => {
+    submitCreateAccount().catch((error) => {
+      setAuthBusy(false);
+      setAuthMessage(error.message);
+    });
+  });
+
+  document.getElementById("login-button").addEventListener("click", () => {
+    submitPasswordLogin().catch((error) => {
+      setAuthBusy(false);
       setAuthMessage(error.message);
     });
   });

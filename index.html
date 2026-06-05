@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GoonBet | Public World Cup Betting Board</title>
-    <link rel="stylesheet" href="./styles.css?v=goonbet-supabase-1" />
+    <link rel="stylesheet" href="./styles.css?v=goonbet-password-1" />
   </head>
   <body>
     <div class="page-shell">
@@ -17,17 +17,21 @@
         </div>
         <aside class="hero-panel">
           <h2>Bet Account</h2>
-          <p class="muted">Anyone can browse the board. To place fake-money bets, sign in with an email link.</p>
+          <p class="muted">Anyone can browse the board. To place fake-money bets, create an account with a username and password.</p>
           <form id="login-form" class="stack-form">
-            <label class="field" for="name-input">
-              <span>Name</span>
-              <input id="name-input" type="text" placeholder="Your name" />
+            <label class="field" for="username-input">
+              <span>Username</span>
+              <input id="username-input" type="text" placeholder="pick a username" />
             </label>
-            <label class="field" for="email-input">
-              <span>Email</span>
-              <input id="email-input" type="email" placeholder="you@example.com" />
+            <label class="field" for="password-input">
+              <span>Password</span>
+              <input id="password-input" type="password" placeholder="choose a password" />
             </label>
-            <button class="button primary" type="submit">Send sign-in link</button>
+            <div class="small-note">Use 3-24 characters: letters, numbers, `_` or `-`.</div>
+            <div class="button-row">
+              <button id="create-account-button" class="button primary" type="button">Create account</button>
+              <button id="login-button" class="button secondary" type="button">Log in</button>
+            </div>
           </form>
           <div id="auth-status" class="small-note"></div>
           <div id="account-card" class="account-card"></div>
@@ -66,7 +70,7 @@
       </main>
     </div>
 
-    <script src="./app-config.js?v=goonbet-supabase-1"></script>
-    <script type="module" src="./app.js?v=goonbet-supabase-1"></script>
+    <script src="./app-config.js?v=goonbet-password-1"></script>
+    <script type="module" src="./app.js?v=goonbet-password-1"></script>
   </body>
 </html>
