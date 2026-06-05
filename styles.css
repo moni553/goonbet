@@ -308,6 +308,22 @@ input {
   background: #ffffff;
   text-align: left;
   cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    transform 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.odd-button:hover:not(:disabled) {
+  border-color: rgba(30, 112, 72, 0.38);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(27, 33, 24, 0.06);
+}
+
+.odd-button.selected {
+  border-color: rgba(30, 112, 72, 0.48);
+  background: rgba(30, 112, 72, 0.1);
 }
 
 .odd-button:disabled {
@@ -323,6 +339,13 @@ input {
 .odd-button span {
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+.bet-action-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.8rem;
+  align-items: end;
 }
 
 .stake-bar {
@@ -381,7 +404,8 @@ input {
   .main-grid,
   .section-head,
   .stake-bar,
-  .button-row {
+  .button-row,
+  .bet-action-bar {
     grid-template-columns: 1fr;
   }
 

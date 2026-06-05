@@ -9,6 +9,7 @@ const state = {
   authBusy: false,
   authMessage: "",
   bets: [],
+  betDrafts: {},
   matches: [],
   meta: defaultMeta(),
   search: "",
@@ -201,6 +202,31 @@ function findExistingBet(matchId, marketType = "match_result") {
   return state.bets.find((bet) => bet.matchId === matchId && bet.marketType === marketType);
 }
 
+function draftKey(matchId, marketType) {
+  return `${matchId}:${marketType}`;
+}
+
+function getBetDraft(matchId, marketType) {
+  return (
+    state.betDrafts[draftKey(matchId, marketType)] ?? {
+      selection: "",
+      stake: String(simpleConfig.defaultStake),
+    }
+  );
+}
+
+function updateBetDraft(matchId, marketType, patch) {
+  const key = draftKey(matchId, marketType);
+  state.betDrafts[key] = {
+    ...getBetDraft(matchId, marketType),
+    ...patch,
+  };
+}
+
+function clearBetDraft(matchId, marketType) {
+  delete state.betDrafts[draftKey(matchId, marketType)];
+}
+
 function setAuthMessage(message) {
   state.authMessage = message;
   renderAuthStatus();
@@ -337,6 +363,7 @@ function renderAccount() {
 
     state.account = null;
     state.bets = [];
+    state.betDrafts = {};
     renderApp();
     setAuthMessage("Signed out. You can log back in with your username and password any time.");
   });
@@ -378,6 +405,20 @@ function selectionPrice(match, marketType, selection) {
 
 function selectionDisabled(match, marketType, selection, existing) {
   return !state.account || Boolean(existing) || !selectionPrice(match, marketType, selection);
+}
+
+function draftStakeNumber(matchId, marketType) {
+  return Number(getBetDraft(matchId, marketType).stake || 0);
+}
+
+function canPlaceDraft(match, marketType, existing) {
+  const draft = getBetDraft(match.id, marketType);
+  return Boolean(
+    state.account &&
+      !existing &&
+      draft.selection &&
+      selectionPrice(match, marketType, draft.selection),
+  );
 }
 
 function quoteMarkup(match) {
@@ -429,6 +470,8 @@ function renderMatches() {
     .map((match) => {
       const existingResult = findExistingBet(match.id, "match_result");
       const existingTotals = findExistingBet(match.id, "totals");
+      const resultDraft = getBetDraft(match.id, "match_result");
+      const totalsDraft = getBetDraft(match.id, "totals");
       return `
         <article class="match-card">
           <div class="match-top">
@@ -456,7 +499,7 @@ function renderMatches() {
 
                   return `
                     <button
-                      class="odd-button"
+                      class="odd-button ${resultDraft.selection === selection ? "selected" : ""}"
                       type="button"
                       data-match-id="${escapeHtml(match.id)}"
                       data-market-type="match_result"
@@ -471,6 +514,31 @@ function renderMatches() {
                 })
                 .join("")}
             </div>
+            <div class="bet-action-bar">
+              <label class="field" for="stake-${escapeHtml(match.id)}-match_result">
+                <span>Stake</span>
+                <input
+                  id="stake-${escapeHtml(match.id)}-match_result"
+                  type="number"
+                  min="10"
+                  max="${simpleConfig.maxStake}"
+                  value="${escapeHtml(resultDraft.stake)}"
+                  data-stake-input="true"
+                  data-match-id="${escapeHtml(match.id)}"
+                  data-market-type="match_result"
+                />
+              </label>
+              <button
+                class="button primary"
+                type="button"
+                data-place-bet="true"
+                data-match-id="${escapeHtml(match.id)}"
+                data-market-type="match_result"
+                ${canPlaceDraft(match, "match_result", existingResult) ? "" : "disabled"}
+              >
+                Place bet
+              </button>
+            </div>
             <div class="small-note">
               ${
                 existingResult
@@ -479,7 +547,9 @@ function renderMatches() {
                     ? "Log in first to place a bet."
                     : !match.odds.HOME
                       ? "Fixture loaded, but there are no live 1X2 prices yet."
-                      : "Tap a result outcome to place this bet."
+                      : !resultDraft.selection
+                        ? "1. Choose a result outcome. 2. Enter a stake. 3. Press Place bet."
+                        : `Selected: ${escapeHtml(selectionLabel(match, resultDraft.selection, "match_result"))}. Press Place bet to confirm.`
               }
             </div>
           </div>
@@ -499,7 +569,7 @@ function renderMatches() {
 
                   return `
                     <button
-                      class="odd-button"
+                      class="odd-button ${totalsDraft.selection === selection ? "selected" : ""}"
                       type="button"
                       data-match-id="${escapeHtml(match.id)}"
                       data-market-type="totals"
@@ -514,6 +584,31 @@ function renderMatches() {
                 })
                 .join("")}
             </div>
+            <div class="bet-action-bar">
+              <label class="field" for="stake-${escapeHtml(match.id)}-totals">
+                <span>Stake</span>
+                <input
+                  id="stake-${escapeHtml(match.id)}-totals"
+                  type="number"
+                  min="10"
+                  max="${simpleConfig.maxStake}"
+                  value="${escapeHtml(totalsDraft.stake)}"
+                  data-stake-input="true"
+                  data-match-id="${escapeHtml(match.id)}"
+                  data-market-type="totals"
+                />
+              </label>
+              <button
+                class="button primary"
+                type="button"
+                data-place-bet="true"
+                data-match-id="${escapeHtml(match.id)}"
+                data-market-type="totals"
+                ${canPlaceDraft(match, "totals", existingTotals) ? "" : "disabled"}
+              >
+                Place bet
+              </button>
+            </div>
             <div class="small-note">
               ${
                 existingTotals
@@ -522,31 +617,42 @@ function renderMatches() {
                     ? "Log in first to place a bet."
                     : !match.totals?.OVER
                       ? "This bookmaker feed does not have a live over/under line for the match yet."
-                      : "Tap over or under to place this market."
+                      : !totalsDraft.selection
+                        ? "1. Choose over or under. 2. Enter a stake. 3. Press Place bet."
+                        : `Selected: ${escapeHtml(selectionLabel(match, totalsDraft.selection, "totals"))}. Press Place bet to confirm.`
               }
             </div>
           </div>
           ${quoteMarkup(match)}
-          <div class="stake-bar">
-            <label class="field" for="stake-${escapeHtml(match.id)}">
-              <span>Stake</span>
-              <input id="stake-${escapeHtml(match.id)}" type="number" min="10" max="${simpleConfig.maxStake}" value="${simpleConfig.defaultStake}" />
-            </label>
-            <div class="small-note">One result bet and one totals bet can be active on the same match.</div>
-          </div>
+          <div class="small-note">One result bet and one totals bet can be active on the same match.</div>
         </article>
       `;
     })
     .join("");
 
   document.querySelectorAll("[data-selection]").forEach((button) => {
-    button.addEventListener("click", async () => {
+    button.addEventListener("click", () => {
       const matchId = button.dataset.matchId;
       const marketType = button.dataset.marketType || "match_result";
       const selection = button.dataset.selection;
+      updateBetDraft(matchId, marketType, { selection });
+      renderMatches();
+    });
+  });
+
+  document.querySelectorAll("[data-stake-input='true']").forEach((input) => {
+    input.addEventListener("input", () => {
+      updateBetDraft(input.dataset.matchId, input.dataset.marketType, { stake: input.value });
+    });
+  });
+
+  document.querySelectorAll("[data-place-bet='true']").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const matchId = button.dataset.matchId;
+      const marketType = button.dataset.marketType || "match_result";
+      const draft = getBetDraft(matchId, marketType);
       const match = state.matches.find((item) => item.id === matchId);
-      const stake = Number(document.getElementById(`stake-${matchId}`).value || 0);
-      await placeBet(match, selection, stake, marketType);
+      await placeBet(match, draft.selection, draftStakeNumber(matchId, marketType), marketType);
     });
   });
 }
@@ -629,6 +735,7 @@ async function placeBet(match, selection, stake, marketType) {
   }
 
   state.bets = [normalizeBet(data), ...state.bets];
+  clearBetDraft(match.id, marketType);
   setAuthMessage("Bet placed.");
   renderApp();
 }
@@ -770,6 +877,7 @@ async function syncSession(session) {
   if (!state.supabaseConfigured || !session?.user) {
     state.account = null;
     state.bets = [];
+    state.betDrafts = {};
     renderApp();
     return;
   }
