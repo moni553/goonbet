@@ -13,7 +13,7 @@ export const simpleConfig = {
     "Public weekly match board, real live coefficients when provider keys are configured, and simple username-plus-password betting accounts powered by Supabase.",
 };
 
-export const demoMatches = [
+const rawDemoMatches = [
   {
     id: "w1-001",
     fixtureSource: "Demo fixtures fallback",
@@ -291,3 +291,46 @@ export const demoMatches = [
     odds: { HOME: 2.66, DRAW: 3.08, AWAY: 2.74 },
   },
 ];
+
+function clampToOdds(value) {
+  return Number(value.toFixed(2));
+}
+
+function buildDemoTotals(match, index) {
+  const favoritePrice = Math.min(match.odds.HOME ?? 2.2, match.odds.AWAY ?? 2.2);
+  const line = favoritePrice <= 1.78 || index % 4 === 0 ? 3.5 : 2.5;
+  const overPrice = clampToOdds(1.78 + (index % 3) * 0.07 + (favoritePrice <= 1.78 ? 0.04 : 0));
+  const underPrice = clampToOdds(1.88 + ((index + 1) % 3) * 0.06);
+
+  return {
+    OVER: overPrice,
+    UNDER: underPrice,
+    point: line,
+  };
+}
+
+function buildDemoQuoteTotals(totals, quoteIndex) {
+  return {
+    OVER: clampToOdds(totals.OVER - quoteIndex * 0.03),
+    UNDER: clampToOdds(totals.UNDER - quoteIndex * 0.02),
+    point: totals.point,
+  };
+}
+
+export const demoMatches = rawDemoMatches.map((match, matchIndex) => {
+  const totals = buildDemoTotals(match, matchIndex);
+
+  return {
+    ...match,
+    quotes: (match.quotes ?? []).map((quote, quoteIndex) => ({
+      ...quote,
+      totals: buildDemoQuoteTotals(totals, quoteIndex),
+    })),
+    totals,
+    totalsDetail: `Demo total goals market at ${totals.point.toFixed(1)}.`,
+    totalsOrigins: {
+      OVER: match.quotes?.[0]?.bookmaker ?? match.bookmaker,
+      UNDER: match.quotes?.[0]?.bookmaker ?? match.bookmaker,
+    },
+  };
+});

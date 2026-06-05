@@ -192,7 +192,7 @@ async function loadOddsFeed() {
     const url = buildTheOddsApiRequest({
       apiKey: runtimeEnv.THE_ODDS_API_KEY,
       bookmaker: runtimeEnv.ODDS_API_BOOKMAKERS || "",
-      market: "h2h",
+      market: "h2h,totals",
       oddsFormat: "decimal",
       region: runtimeEnv.ODDS_API_REGIONS || "eu",
       sportKey: runtimeEnv.ODDS_API_SPORT_KEY || "soccer_fifa_world_cup",
@@ -234,6 +234,26 @@ function bestOddsDetail(oddsMatch) {
   return parts.length ? `Best extracted coefficients - ${parts.join(" | ")}` : "No live bookmaker prices matched this fixture yet.";
 }
 
+function bestTotalsDetail(oddsMatch) {
+  if (!oddsMatch?.totals?.point) {
+    return "No live over/under total returned for this fixture yet.";
+  }
+
+  const parts = ["OVER", "UNDER"]
+    .map((selection) => {
+      const label = selection === "OVER" ? "O" : "U";
+      const bookmaker = oddsMatch.totalsOrigins?.[selection];
+      const odd = oddsMatch.totals?.[selection];
+      if (!bookmaker || !odd) {
+        return null;
+      }
+      return `${label}${oddsMatch.totals.point}: ${bookmaker} ${odd.toFixed(2)}`;
+    })
+    .filter(Boolean);
+
+  return parts.length ? `Best total goals line - ${parts.join(" | ")}` : "No live over/under total returned for this fixture yet.";
+}
+
 function makeMatchRecord(base, oddsMatch) {
   const { weekId, weekLabel } = weekInfo(base.kickoff);
 
@@ -251,6 +271,9 @@ function makeMatchRecord(base, oddsMatch) {
     bookmaker: oddsMatch?.bookmaker ?? "No bookmaker yet",
     bookmakerCount: oddsMatch?.bookmakerCount ?? 0,
     quotes: oddsMatch?.quotes ?? [],
+    totals: oddsMatch?.totals ?? { OVER: null, UNDER: null, point: null },
+    totalsDetail: bestTotalsDetail(oddsMatch),
+    totalsOrigins: oddsMatch?.totalsOrigins ?? { OVER: null, UNDER: null },
     weekId,
     weekLabel,
   };

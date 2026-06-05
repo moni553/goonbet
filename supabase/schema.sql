@@ -15,15 +15,32 @@ create table if not exists public.bets (
   home text not null,
   away text not null,
   kickoff timestamptz not null,
-  selection text not null check (selection in ('HOME', 'DRAW', 'AWAY')),
+  market_type text not null default 'match_result',
+  market_line numeric(6, 2),
+  selection text not null,
   selection_label text not null,
-  stake integer not null check (stake >= 10 and stake <= 250),
+  stake integer not null,
   odds numeric(8, 2) not null check (odds > 1),
   bookmaker text,
   odds_source text,
-  placed_at timestamptz not null default now(),
-  unique (user_id, match_id)
+  placed_at timestamptz not null default now()
 );
+
+alter table public.bets add column if not exists market_type text not null default 'match_result';
+alter table public.bets add column if not exists market_line numeric(6, 2);
+
+alter table public.bets drop constraint if exists bets_selection_check;
+alter table public.bets add constraint bets_selection_check check (selection in ('HOME', 'DRAW', 'AWAY', 'OVER', 'UNDER'));
+
+alter table public.bets drop constraint if exists bets_market_type_check;
+alter table public.bets add constraint bets_market_type_check check (market_type in ('match_result', 'totals'));
+
+alter table public.bets drop constraint if exists bets_stake_check;
+alter table public.bets add constraint bets_stake_check check (stake >= 10 and stake <= 200);
+
+alter table public.bets drop constraint if exists bets_user_id_match_id_key;
+drop index if exists public.bets_one_market_per_match_idx;
+create unique index if not exists bets_one_market_per_match_idx on public.bets (user_id, match_id, market_type);
 
 create or replace function public.set_updated_at()
 returns trigger
