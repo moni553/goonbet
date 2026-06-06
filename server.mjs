@@ -12,6 +12,7 @@ const runtimeEnv = loadRuntimeEnv();
 const port = Number(runtimeEnv.PORT || 4173);
 const host = runtimeEnv.HOST || "0.0.0.0";
 const cacheTtlMs = Number(runtimeEnv.CACHE_TTL_SECONDS || simpleConfig.cacheTtlSeconds) * 1000;
+const matchLookbackDays = Number(runtimeEnv.MATCH_LOOKBACK_DAYS || simpleConfig.matchLookbackDays);
 const matchLookaheadDays = Number(runtimeEnv.MATCH_LOOKAHEAD_DAYS || simpleConfig.matchLookaheadDays);
 
 const mimeTypes = {
@@ -106,10 +107,12 @@ function kickoffDistanceMs(left, right) {
 
 function currentDateRange() {
   const today = new Date();
+  const past = new Date();
   const future = new Date();
+  past.setUTCDate(today.getUTCDate() - matchLookbackDays);
   future.setUTCDate(today.getUTCDate() + matchLookaheadDays);
   return {
-    dateFrom: toIsoDate(today),
+    dateFrom: toIsoDate(past),
     dateTo: toIsoDate(future),
   };
 }
@@ -264,6 +267,11 @@ function makeMatchRecord(base, oddsMatch) {
     home: base.home,
     away: base.away,
     kickoff: base.kickoff,
+    score: {
+      home: Number.isFinite(base.homeScore) ? base.homeScore : null,
+      away: Number.isFinite(base.awayScore) ? base.awayScore : null,
+    },
+    status: base.status ?? "SCHEDULED",
     oddsSource: oddsMatch?.oddsSource ?? simpleConfig.fallbackOddsSourceLabel,
     oddsDetail: bestOddsDetail(oddsMatch),
     oddsOrigins: oddsMatch?.oddsOrigins ?? { HOME: null, DRAW: null, AWAY: null },
@@ -325,6 +333,11 @@ function demoMatchPayload(notes) {
     const { weekId, weekLabel } = weekInfo(match.kickoff);
     return {
       ...match,
+      score: {
+        home: null,
+        away: null,
+      },
+      status: "SCHEDULED",
       weekId,
       weekLabel,
     };
@@ -356,10 +369,13 @@ async function buildMatchPayload() {
     fixtureSource: fixtureFeed.provider,
     group: match.group || match.stage || match.competition || "Upcoming",
     home: match.homeTeam,
+    homeScore: match.homeScore,
     away: match.awayTeam,
+    awayScore: match.awayScore,
     id: `${match.provider}-${match.providerMatchId}`,
     kickoff: match.kickoff,
     stage: match.stage,
+    status: match.status,
   }));
 
   const mergedMatches = mergeFixturesWithOdds(fixtureMatches, oddsFeed.matches);

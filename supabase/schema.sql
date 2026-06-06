@@ -91,9 +91,74 @@ after insert on auth.users
 for each row
 execute procedure public.handle_new_user();
 
-grant usage on schema public to authenticated;
+create or replace function public.get_public_players()
+returns table (
+  id uuid,
+  display_name text,
+  created_at timestamptz
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select
+    profiles.id,
+    profiles.display_name,
+    profiles.created_at
+  from public.profiles
+  order by lower(profiles.display_name), profiles.created_at;
+$$;
+
+create or replace function public.get_public_bets()
+returns table (
+  id uuid,
+  user_id uuid,
+  display_name text,
+  match_id text,
+  home text,
+  away text,
+  kickoff timestamptz,
+  market_type text,
+  market_line numeric,
+  selection text,
+  selection_label text,
+  stake integer,
+  odds numeric,
+  bookmaker text,
+  odds_source text,
+  placed_at timestamptz
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select
+    bets.id,
+    bets.user_id,
+    profiles.display_name,
+    bets.match_id,
+    bets.home,
+    bets.away,
+    bets.kickoff,
+    bets.market_type,
+    bets.market_line,
+    bets.selection,
+    bets.selection_label,
+    bets.stake,
+    bets.odds,
+    bets.bookmaker,
+    bets.odds_source,
+    bets.placed_at
+  from public.bets
+  join public.profiles on profiles.id = bets.user_id
+  order by bets.placed_at desc;
+$$;
+
+grant usage on schema public to anon, authenticated;
 grant select, insert, update on public.profiles to authenticated;
 grant select, insert, delete on public.bets to authenticated;
+grant execute on function public.get_public_players() to anon, authenticated;
+grant execute on function public.get_public_bets() to anon, authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.bets enable row level security;

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GoonBet | Public World Cup Betting Board</title>
-    <link rel="stylesheet" href="./styles.css?v=goonbet-delete-1" />
+    <link rel="stylesheet" href="./styles.css?v=goonbet-board-1" />
   </head>
   <body>
     <div class="page-shell">
@@ -58,6 +58,26 @@
 
         <aside class="side-stack">
           <section class="panel">
+            <div class="section-head compact-head">
+              <div>
+                <p class="section-kicker">Public pool</p>
+                <h2>Leaderboard</h2>
+              </div>
+            </div>
+            <div id="leaderboard" class="leaderboard-shell"></div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head compact-head">
+              <div>
+                <p class="section-kicker">Pool log</p>
+                <h2>Winnings feed</h2>
+              </div>
+            </div>
+            <div id="activity-log" class="activity-feed"></div>
+          </section>
+
+          <section class="panel">
             <div class="section-head">
               <div>
                 <p class="section-kicker">Your account</p>
@@ -70,7 +90,7 @@
       </main>
     </div>
 
-    <script src="./app-config.js?v=goonbet-delete-1"></script>
-    <script type="module" src="./app.js?v=goonbet-delete-1"></script>
+    <script src="./app-config.js?v=goonbet-board-1"></script>
+    <script type="module" src="./app.js?v=goonbet-board-1"></script>
   </body>
 </html>

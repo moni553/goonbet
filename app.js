@@ -3,6 +3,16 @@ import { demoMatches, simpleConfig } from "./data/simple-app-data.js";
 
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9_-]{2,23}$/;
 const USERNAME_EMAIL_DOMAIN = "players.goonbet.app";
+const FINAL_MATCH_STATUSES = new Set(["AWARDED", "FINISHED", "FINAL", "FT"]);
+const LIVE_MATCH_STATUSES = new Set([
+  "EXTRA_TIME",
+  "HALF_TIME",
+  "IN_PLAY",
+  "LIVE",
+  "PAUSED",
+  "PENALTY_SHOOTOUT",
+  "SUSPENDED",
+]);
 
 const state = {
   account: null,
@@ -12,6 +22,13 @@ const state = {
   betDrafts: {},
   matches: [],
   meta: defaultMeta(),
+  publicBets: [],
+  publicBoard: {
+    activity: [],
+    leaderboard: [],
+  },
+  publicPlayers: [],
+  publicPoolMessage: "",
   search: "",
   selectedWeek: "all",
   supabase: null,
@@ -58,6 +75,11 @@ function normalizeMatch(match) {
     oddsOrigins: match.oddsOrigins ?? { HOME: null, DRAW: null, AWAY: null },
     oddsSource: match.oddsSource ?? simpleConfig.fallbackOddsSourceLabel,
     quotes: match.quotes ?? [],
+    score: {
+      home: Number.isFinite(match.score?.home) ? Number(match.score.home) : null,
+      away: Number.isFinite(match.score?.away) ? Number(match.score.away) : null,
+    },
+    status: match.status ?? "SCHEDULED",
     totals: match.totals ?? { OVER: null, UNDER: null, point: null },
     totalsDetail: match.totalsDetail ?? "No live over/under total returned for this fixture yet.",
     totalsOrigins: match.totalsOrigins ?? { OVER: null, UNDER: null },
@@ -70,6 +92,7 @@ function normalizeBet(bet) {
   return {
     away: bet.away,
     bookmaker: bet.bookmaker,
+    displayName: bet.display_name ?? bet.displayName ?? null,
     home: bet.home,
     id: bet.id,
     kickoff: bet.kickoff,
@@ -82,6 +105,15 @@ function normalizeBet(bet) {
     selection: bet.selection,
     selectionLabel: bet.selection_label,
     stake: Number(bet.stake),
+    userId: bet.user_id ?? null,
+  };
+}
+
+function normalizePublicPlayer(player) {
+  return {
+    createdAt: player.created_at ?? null,
+    displayName: player.display_name ?? "Player",
+    id: player.id,
   };
 }
 
@@ -104,7 +136,13 @@ function escapeHtml(value) {
 }
 
 function formatMoney(value) {
-  return `${currency.format(value)} GOON`;
+  return `${currency.format(Math.round(Number(value) || 0))} GOON`;
+}
+
+function formatSignedMoney(value) {
+  const amount = Math.round(Number(value) || 0);
+  const sign = amount > 0 ? "+" : amount < 0 ? "-" : "";
+  return `${sign}${formatMoney(Math.abs(amount))}`;
 }
 
 function formatKickoff(value) {
@@ -148,12 +186,158 @@ function readCredentialsFromForm() {
   };
 }
 
+function roundPayout(value) {
+  return Math.round(Number(value) || 0);
+}
+
+function matchById(matchId) {
+  return state.matches.find((match) => match.id === matchId) ?? null;
+}
+
+function matchPhase(match) {
+  const status = String(match?.status || "").toUpperCase();
+
+  if (FINAL_MATCH_STATUSES.has(status)) {
+    return "FINAL";
+  }
+
+  if (LIVE_MATCH_STATUSES.has(status)) {
+    return "LIVE";
+  }
+
+  if (match?.kickoff && new Date(match.kickoff).getTime() <= Date.now()) {
+    return "LOCKED";
+  }
+
+  return "SCHEDULED";
+}
+
+function matchHasFinalScore(match) {
+  return (
+    Boolean(match) &&
+    matchPhase(match) === "FINAL" &&
+    Number.isFinite(match.score?.home) &&
+    Number.isFinite(match.score?.away)
+  );
+}
+
+function scorelineLabel(match) {
+  if (!match || !Number.isFinite(match.score?.home) || !Number.isFinite(match.score?.away)) {
+    return "No score yet";
+  }
+
+  return `${match.score.home} - ${match.score.away}`;
+}
+
+function matchOutcome(match) {
+  if (!matchHasFinalScore(match)) {
+    return null;
+  }
+
+  if (match.score.home > match.score.away) {
+    return "HOME";
+  }
+
+  if (match.score.home < match.score.away) {
+    return "AWAY";
+  }
+
+  return "DRAW";
+}
+
+function evaluateBet(bet) {
+  const match = matchById(bet.matchId);
+  const phase = match ? matchPhase(match) : new Date(bet.kickoff).getTime() <= Date.now() ? "LOCKED" : "SCHEDULED";
+
+  if (!match || !matchHasFinalScore(match)) {
+    return {
+      isSettled: false,
+      match,
+      net: 0,
+      payout: 0,
+      phase,
+      result: "OPEN",
+    };
+  }
+
+  if (bet.marketType === "totals") {
+    const totalGoals = match.score.home + match.score.away;
+    const line = Number(bet.marketLine);
+
+    if (!Number.isFinite(line)) {
+      return {
+        isSettled: false,
+        match,
+        net: 0,
+        payout: 0,
+        phase,
+        result: "OPEN",
+      };
+    }
+
+    if (totalGoals === line) {
+      return {
+        isSettled: true,
+        match,
+        net: 0,
+        payout: bet.stake,
+        phase,
+        result: "PUSH",
+      };
+    }
+
+    const won = bet.selection === "OVER" ? totalGoals > line : totalGoals < line;
+    const payout = won ? roundPayout(bet.stake * bet.odds) : 0;
+
+    return {
+      isSettled: true,
+      match,
+      net: won ? payout - bet.stake : -bet.stake,
+      payout,
+      phase,
+      result: won ? "WON" : "LOST",
+    };
+  }
+
+  const outcome = matchOutcome(match);
+  const won = outcome === bet.selection;
+  const payout = won ? roundPayout(bet.stake * bet.odds) : 0;
+
+  return {
+    isSettled: true,
+    match,
+    net: won ? payout - bet.stake : -bet.stake,
+    payout,
+    phase,
+    result: won ? "WON" : "LOST",
+  };
+}
+
+function ownBetEvaluations() {
+  return state.bets.map((bet) => ({
+    bet,
+    settlement: evaluateBet(bet),
+  }));
+}
+
 function totalStakeForAccount() {
-  return state.bets.reduce((sum, bet) => sum + bet.stake, 0);
+  return ownBetEvaluations()
+    .filter((item) => !item.settlement.isSettled)
+    .reduce((sum, item) => sum + item.bet.stake, 0);
+}
+
+function settledProfitForAccount() {
+  return ownBetEvaluations()
+    .filter((item) => item.settlement.isSettled)
+    .reduce((sum, item) => sum + item.settlement.net, 0);
+}
+
+function contestValueForAccount() {
+  return simpleConfig.startingBankroll + settledProfitForAccount();
 }
 
 function bankrollLeft() {
-  return simpleConfig.startingBankroll - totalStakeForAccount();
+  return contestValueForAccount() - totalStakeForAccount();
 }
 
 function availableWeeks() {
@@ -245,7 +429,138 @@ function setAuthBusy(isBusy) {
   });
 }
 
+function buildPublicBoard() {
+  const playerMap = new Map();
+
+  state.publicPlayers.forEach((player) => {
+    playerMap.set(player.id, player);
+  });
+
+  state.publicBets.forEach((bet) => {
+    if (!playerMap.has(bet.userId)) {
+      playerMap.set(bet.userId, {
+        createdAt: null,
+        displayName: bet.displayName ?? "Player",
+        id: bet.userId,
+      });
+    }
+  });
+
+  const evaluatedBets = state.publicBets.map((bet) => ({
+    ...bet,
+    settlement: evaluateBet(bet),
+  }));
+
+  const leaderboard = Array.from(playerMap.values())
+    .map((player) => {
+      const playerBets = evaluatedBets.filter((bet) => bet.userId === player.id);
+      const activeStake = playerBets
+        .filter((bet) => !bet.settlement.isSettled)
+        .reduce((sum, bet) => sum + bet.stake, 0);
+      const settledProfit = playerBets
+        .filter((bet) => bet.settlement.isSettled)
+        .reduce((sum, bet) => sum + bet.settlement.net, 0);
+      const contestValue = simpleConfig.startingBankroll + settledProfit;
+      const availableCash = contestValue - activeStake;
+
+      return {
+        activeBetCount: playerBets.filter((bet) => !bet.settlement.isSettled).length,
+        activeStake,
+        availableCash,
+        contestValue,
+        displayName: player.displayName,
+        id: player.id,
+        settledProfit,
+        totalBets: playerBets.length,
+        wonCount: playerBets.filter((bet) => bet.settlement.result === "WON").length,
+      };
+    })
+    .sort((left, right) => {
+      if (right.contestValue !== left.contestValue) {
+        return right.contestValue - left.contestValue;
+      }
+
+      if (right.availableCash !== left.availableCash) {
+        return right.availableCash - left.availableCash;
+      }
+
+      if (right.wonCount !== left.wonCount) {
+        return right.wonCount - left.wonCount;
+      }
+
+      return left.displayName.localeCompare(right.displayName);
+    })
+    .map((player, index) => ({
+      ...player,
+      rank: index + 1,
+    }));
+
+  const activity = evaluatedBets
+    .flatMap((bet) => {
+      const events = [
+        {
+          detail: `${bet.home} vs ${bet.away} | ${bet.selectionLabel} @ ${bet.odds.toFixed(2)}`,
+          displayName: bet.displayName ?? "Player",
+          id: `placed-${bet.id}`,
+          time: new Date(bet.placedAt ?? bet.kickoff).getTime(),
+          title: `placed ${formatMoney(bet.stake)} on ${bet.selectionLabel}`,
+          type: "placed",
+        },
+      ];
+
+      if (!bet.settlement.isSettled || !bet.settlement.match) {
+        return events;
+      }
+
+      const finishedScore = scorelineLabel(bet.settlement.match);
+      const settledAt = new Date(bet.settlement.match.kickoff).getTime() + 2 * 60 * 60 * 1000;
+
+      if (bet.settlement.result === "WON") {
+        events.unshift({
+          detail: `${bet.home} vs ${bet.away} finished ${finishedScore} | Net ${formatSignedMoney(bet.settlement.net)}`,
+          displayName: bet.displayName ?? "Player",
+          id: `won-${bet.id}`,
+          time: settledAt,
+          title: `won ${formatMoney(bet.settlement.payout)} on ${bet.selectionLabel}`,
+          type: "won",
+        });
+      } else if (bet.settlement.result === "PUSH") {
+        events.unshift({
+          detail: `${bet.home} vs ${bet.away} finished ${finishedScore} | Stake returned`,
+          displayName: bet.displayName ?? "Player",
+          id: `push-${bet.id}`,
+          time: settledAt,
+          title: `got ${formatMoney(bet.settlement.payout)} back on ${bet.selectionLabel}`,
+          type: "push",
+        });
+      } else {
+        events.unshift({
+          detail: `${bet.home} vs ${bet.away} finished ${finishedScore}`,
+          displayName: bet.displayName ?? "Player",
+          id: `lost-${bet.id}`,
+          time: settledAt,
+          title: `lost ${formatMoney(bet.stake)} on ${bet.selectionLabel}`,
+          type: "lost",
+        });
+      }
+
+      return events;
+    })
+    .sort((left, right) => right.time - left.time)
+    .slice(0, 48);
+
+  return {
+    activity,
+    leaderboard,
+  };
+}
+
+function recalculatePublicBoard() {
+  state.publicBoard = buildPublicBoard();
+}
+
 function syncHero() {
+  const leader = state.publicBoard.leaderboard[0] ?? null;
   const liveCopy = state.meta.usingDemoFallback
     ? "Demo fallback is active right now. Add live provider keys to switch the public board onto real fixtures and coefficients."
     : `Live board is on. Fixtures: ${state.meta.fixtureProvider}. Coefficients: ${state.meta.oddsProvider}.`;
@@ -256,6 +571,12 @@ function syncHero() {
       ? `${state.account.username} is signed in and ready to bet.`
       : "Public viewing is open; betting unlocks after username and password login.";
 
+  const leaderCopy = leader
+    ? `${leader.displayName} leads on ${formatMoney(leader.contestValue)} with ${formatMoney(leader.activeStake)} in active bets.`
+    : state.publicPoolMessage
+      ? state.publicPoolMessage
+      : "No players are on the leaderboard yet.";
+
   document.getElementById("hero-text").textContent = simpleConfig.tagline;
   document.getElementById("hero-stats").innerHTML = [
     {
@@ -265,6 +586,10 @@ function syncHero() {
     {
       title: "Matches",
       copy: `${state.matches.length} matches currently on the board.`,
+    },
+    {
+      title: "Leader",
+      copy: leaderCopy,
     },
     {
       title: "Betting",
@@ -320,11 +645,13 @@ function renderAccount() {
   if (!state.account) {
     card.innerHTML = `
       <div class="small-note">
-        Guests can browse every weekly match. Bettors create a username and password, then place one fake-money bet per match.
+        Guests can browse every weekly match. Bettors create a username and password, then place one fake-money bet per market.
       </div>
     `;
     return;
   }
+
+  const settledProfit = settledProfitForAccount();
 
   card.innerHTML = `
     <div class="bet-row">
@@ -332,19 +659,23 @@ function renderAccount() {
       <strong>${escapeHtml(state.account.username)}</strong>
     </div>
     <div class="bet-row">
-      <span>Profile name</span>
-      <strong>${escapeHtml(state.account.name)}</strong>
-    </div>
-    <div class="bet-row">
       <span>Starting bankroll</span>
       <strong>${escapeHtml(formatMoney(simpleConfig.startingBankroll))}</strong>
     </div>
     <div class="bet-row">
-      <span>Reserved on bets</span>
+      <span>Settled swing</span>
+      <strong class="${settledProfit >= 0 ? "amount-good" : "amount-bad"}">${escapeHtml(formatSignedMoney(settledProfit))}</strong>
+    </div>
+    <div class="bet-row">
+      <span>Total GOON</span>
+      <strong>${escapeHtml(formatMoney(contestValueForAccount()))}</strong>
+    </div>
+    <div class="bet-row">
+      <span>In active bets</span>
       <strong class="amount-bad">${escapeHtml(formatMoney(totalStakeForAccount()))}</strong>
     </div>
     <div class="bet-row">
-      <span>Bankroll left</span>
+      <span>Available now</span>
       <strong class="amount-good">${escapeHtml(formatMoney(bankrollLeft()))}</strong>
     </div>
     <button id="logout-button" class="button ghost" type="button">Sign out</button>
@@ -364,6 +695,7 @@ function renderAccount() {
     state.account = null;
     state.bets = [];
     state.betDrafts = {};
+    await loadPublicPool();
     renderApp();
     setAuthMessage("Signed out. You can log back in with your username and password any time.");
   });
@@ -455,6 +787,21 @@ function marketBadge(match, marketType) {
   }
 
   return "Match result";
+}
+
+function selectionLabel(match, selection, marketType) {
+  if (marketType === "totals") {
+    const point = match.totals?.point?.toFixed(1) ?? "2.5";
+    return selection === "OVER" ? `Over ${point} goals` : `Under ${point} goals`;
+  }
+
+  if (selection === "HOME") {
+    return `${match.home} win`;
+  }
+  if (selection === "AWAY") {
+    return `${match.away} win`;
+  }
+  return "Draw";
 }
 
 function renderMatches() {
@@ -564,7 +911,7 @@ function renderMatches() {
                   const origin = match.totalsOrigins?.[selection];
                   const label =
                     selection === "OVER"
-                      ? `Over ${match.totals?.point?.toFixed(1) ?? "-"}` 
+                      ? `Over ${match.totals?.point?.toFixed(1) ?? "-"}`
                       : `Under ${match.totals?.point?.toFixed(1) ?? "-"}`;
 
                   return `
@@ -657,21 +1004,6 @@ function renderMatches() {
   });
 }
 
-function selectionLabel(match, selection, marketType) {
-  if (marketType === "totals") {
-    const point = match.totals?.point?.toFixed(1) ?? "2.5";
-    return selection === "OVER" ? `Over ${point} goals` : `Under ${point} goals`;
-  }
-
-  if (selection === "HOME") {
-    return `${match.home} win`;
-  }
-  if (selection === "AWAY") {
-    return `${match.away} win`;
-  }
-  return "Draw";
-}
-
 function canDeleteBet(bet) {
   return new Date(bet.kickoff).getTime() > Date.now();
 }
@@ -738,8 +1070,18 @@ async function placeBet(match, selection, stake, marketType) {
     return;
   }
 
-  state.bets = [normalizeBet(data), ...state.bets];
+  const normalizedBet = normalizeBet(data);
+  state.bets = [normalizedBet, ...state.bets];
+  state.publicBets = [
+    {
+      ...normalizedBet,
+      displayName: state.account.name,
+      userId: state.account.id,
+    },
+    ...state.publicBets,
+  ];
   clearBetDraft(match.id, marketType);
+  recalculatePublicBoard();
   setAuthMessage("Bet placed.");
   renderApp();
 }
@@ -772,8 +1114,110 @@ async function removeBet(bet) {
   }
 
   state.bets = state.bets.filter((item) => item.id !== bet.id);
+  state.publicBets = state.publicBets.filter((item) => item.id !== bet.id);
+  recalculatePublicBoard();
   setAuthMessage("Bet removed.");
   renderApp();
+}
+
+function renderLeaderboard() {
+  const container = document.getElementById("leaderboard");
+
+  if (!state.supabaseConfigured) {
+    container.innerHTML = `<div class="empty-state">Add Supabase public keys to turn on the public leaderboard.</div>`;
+    return;
+  }
+
+  if (state.publicPoolMessage) {
+    container.innerHTML = `<div class="empty-state">${escapeHtml(state.publicPoolMessage)}</div>`;
+    return;
+  }
+
+  const leaderboard = state.publicBoard.leaderboard;
+
+  if (!leaderboard.length) {
+    container.innerHTML = `<div class="empty-state">No players are on the board yet. Create the first account to kick things off.</div>`;
+    return;
+  }
+
+  const leader = leaderboard[0];
+
+  container.innerHTML = `
+    <article class="leader-highlight">
+      <div class="small-note">Current leader</div>
+      <h3>${escapeHtml(leader.displayName)}</h3>
+      <div class="bet-row">
+        <span>Total GOON</span>
+        <strong>${escapeHtml(formatMoney(leader.contestValue))}</strong>
+      </div>
+      <div class="bet-row">
+        <span>In active bets</span>
+        <strong class="amount-bad">${escapeHtml(formatMoney(leader.activeStake))}</strong>
+      </div>
+      <div class="bet-row">
+        <span>Available now</span>
+        <strong class="amount-good">${escapeHtml(formatMoney(leader.availableCash))}</strong>
+      </div>
+    </article>
+    <div class="leaderboard-list">
+      ${leaderboard
+        .map(
+          (player) => `
+            <article class="leader-row ${state.account?.id === player.id ? "current-user" : ""}">
+              <span class="leader-rank">${player.rank}</span>
+              <div class="leader-copy">
+                <div class="leader-name">${escapeHtml(player.displayName)}${state.account?.id === player.id ? " (you)" : ""}</div>
+                <div class="leader-meta">${player.activeBetCount} active bets | ${player.wonCount} wins | ${player.totalBets} total bets</div>
+              </div>
+              <div class="leader-total">
+                <strong>${escapeHtml(formatMoney(player.contestValue))}</strong>
+                <span class="leader-meta">${escapeHtml(formatMoney(player.activeStake))} active</span>
+              </div>
+            </article>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderActivityLog() {
+  const container = document.getElementById("activity-log");
+
+  if (!state.supabaseConfigured) {
+    container.innerHTML = `<div class="empty-state">Add Supabase public keys to turn on the winnings feed.</div>`;
+    return;
+  }
+
+  if (state.publicPoolMessage) {
+    container.innerHTML = `<div class="empty-state">${escapeHtml(state.publicPoolMessage)}</div>`;
+    return;
+  }
+
+  const activity = state.publicBoard.activity;
+
+  if (!activity.length) {
+    container.innerHTML = `<div class="empty-state">No activity yet. Once bets come in and matches finish, this feed will show who won what.</div>`;
+    return;
+  }
+
+  container.innerHTML = activity
+    .map(
+      (event) => `
+        <article class="activity-entry ${escapeHtml(event.type)}">
+          <div class="activity-avatar">${escapeHtml(event.displayName.slice(0, 1).toUpperCase())}</div>
+          <div class="activity-bubble">
+            <div class="activity-meta">
+              <strong>${escapeHtml(event.displayName)}</strong>
+              <span>${escapeHtml(formatKickoff(event.time))}</span>
+            </div>
+            <div class="activity-title">${escapeHtml(event.title)}</div>
+            <div class="activity-detail">${escapeHtml(event.detail)}</div>
+          </div>
+        </article>
+      `,
+    )
+    .join("");
 }
 
 function renderMyBets() {
@@ -790,25 +1234,51 @@ function renderMyBets() {
   }
 
   if (!state.bets.length) {
-    container.innerHTML = `<div class="empty-state">No bets placed yet. Pick a weekly match and tap one of the live coefficients.</div>`;
+    container.innerHTML = `<div class="empty-state">No bets placed yet. Pick a weekly match, choose an outcome, type your stake, and confirm the bet.</div>`;
     return;
   }
 
-  container.innerHTML = state.bets
+  container.innerHTML = ownBetEvaluations()
     .slice()
-    .sort((left, right) => new Date(right.placedAt) - new Date(left.placedAt))
-    .map(
-      (bet) => `
+    .sort((left, right) => new Date(right.bet.placedAt) - new Date(left.bet.placedAt))
+    .map(({ bet, settlement }) => {
+      const marketLabel =
+        bet.marketType === "totals"
+          ? `Over / Under ${bet.marketLine?.toFixed(1) ?? ""}`.trim()
+          : "Match result";
+      const payoutMarkup = settlement.isSettled
+        ? `
+          <div class="bet-row">
+            <span>${settlement.result === "WON" ? "Return" : settlement.result === "PUSH" ? "Returned" : "Lost"}</span>
+            <strong class="${settlement.result === "WON" ? "amount-good" : settlement.result === "PUSH" ? "" : "amount-bad"}">
+              ${escapeHtml(
+                settlement.result === "LOST"
+                  ? formatMoney(bet.stake)
+                  : formatMoney(settlement.payout),
+              )}
+            </strong>
+          </div>
+          <div class="small-note">Final score: ${escapeHtml(scorelineLabel(settlement.match))}</div>
+        `
+        : "";
+
+      const statusLabel = settlement.isSettled
+        ? settlement.result === "WON"
+          ? "Won"
+          : settlement.result === "PUSH"
+            ? "Push"
+            : "Lost"
+        : canDeleteBet(bet)
+          ? "Editable"
+          : "Locked";
+
+      return `
         <article class="bet-card">
           <div class="small-note">${escapeHtml(formatKickoff(bet.kickoff))}</div>
           <h3>${escapeHtml(bet.home)} vs ${escapeHtml(bet.away)}</h3>
           <div class="bet-row">
             <span>Market</span>
-            <strong>${escapeHtml(
-              bet.marketType === "totals"
-                ? `Over / Under ${bet.marketLine?.toFixed(1) ?? ""}`.trim()
-                : "Match result",
-            )}</strong>
+            <strong>${escapeHtml(marketLabel)}</strong>
           </div>
           <div class="bet-row">
             <span>Pick</span>
@@ -828,20 +1298,23 @@ function renderMyBets() {
           </div>
           <div class="bet-row">
             <span>Status</span>
-            <strong>${canDeleteBet(bet) ? "Editable" : "Locked"}</strong>
+            <strong>${escapeHtml(statusLabel)}</strong>
           </div>
+          ${payoutMarkup}
           ${
-            canDeleteBet(bet)
+            !settlement.isSettled && canDeleteBet(bet)
               ? `
                 <button class="button ghost" type="button" data-delete-bet="${escapeHtml(bet.id)}">
                   Remove bet
                 </button>
               `
-              : `<div class="small-note">Kickoff has passed, so this bet cannot be removed.</div>`
+              : !settlement.isSettled
+                ? `<div class="small-note">Kickoff has passed, so this bet cannot be removed.</div>`
+                : ""
           }
         </article>
-      `,
-    )
+      `;
+    })
     .join("");
 
   document.querySelectorAll("[data-delete-bet]").forEach((button) => {
@@ -885,6 +1358,8 @@ async function loadMatches() {
   if (!validWeeks.has(state.selectedWeek)) {
     state.selectedWeek = "all";
   }
+
+  recalculatePublicBoard();
 }
 
 function deriveProfileName(user) {
@@ -932,11 +1407,53 @@ async function loadBets() {
   return (data ?? []).map(normalizeBet);
 }
 
+async function loadPublicPool() {
+  if (!state.supabaseConfigured || !state.supabase) {
+    state.publicPlayers = [];
+    state.publicBets = [];
+    state.publicPoolMessage = "";
+    recalculatePublicBoard();
+    return;
+  }
+
+  const [playersResult, betsResult] = await Promise.all([
+    state.supabase.rpc("get_public_players"),
+    state.supabase.rpc("get_public_bets"),
+  ]);
+
+  const error = playersResult.error ?? betsResult.error;
+
+  if (error) {
+    state.publicPlayers = [];
+    state.publicBets = [];
+    state.publicPoolMessage = /get_public_|schema cache|function/i.test(error.message)
+      ? "Run the latest schema.sql in Supabase to turn on the public leaderboard and winnings feed."
+      : error.message;
+    recalculatePublicBoard();
+    return;
+  }
+
+  state.publicPlayers = (playersResult.data ?? []).map(normalizePublicPlayer);
+  state.publicBets = (betsResult.data ?? []).map(normalizeBet);
+  state.publicPoolMessage = "";
+  recalculatePublicBoard();
+}
+
 async function syncSession(session) {
-  if (!state.supabaseConfigured || !session?.user) {
+  if (!state.supabaseConfigured || !state.supabase) {
     state.account = null;
     state.bets = [];
     state.betDrafts = {};
+    recalculatePublicBoard();
+    renderApp();
+    return;
+  }
+
+  if (!session?.user) {
+    state.account = null;
+    state.bets = [];
+    state.betDrafts = {};
+    await loadPublicPool();
     renderApp();
     return;
   }
@@ -949,6 +1466,7 @@ async function syncSession(session) {
     username: deriveProfileName(session.user),
   };
   state.bets = await loadBets();
+  await loadPublicPool();
   setAuthMessage("");
   renderApp();
 }
@@ -1095,6 +1613,8 @@ function renderApp() {
   renderAccount();
   renderWeeks();
   renderMatches();
+  renderLeaderboard();
+  renderActivityLog();
   renderMyBets();
   renderAuthStatus();
 }

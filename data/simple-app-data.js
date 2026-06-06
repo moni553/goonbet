@@ -6,6 +6,7 @@ export const simpleConfig = {
   liveOddsSourceLabel: "The Odds API",
   liveFixtureSourceLabel: "football-data.org / Sportmonks",
   maxStake: 200,
+  matchLookbackDays: 14,
   matchLookaheadDays: 21,
   pendingNameStorageKey: "goonbet-pending-name",
   startingBankroll: 200,
