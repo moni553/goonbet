@@ -1101,11 +1101,18 @@ async function removeBet(bet) {
     return;
   }
 
-  const { error } = await state.supabase.from("bets").delete().eq("id", bet.id);
+  const { data, error } = await state.supabase
+    .from("bets")
+    .delete()
+    .eq("id", bet.id)
+    .eq("user_id", state.account.id)
+    .gt("kickoff", new Date().toISOString())
+    .select("id")
+    .single();
 
   if (error) {
-    if (/row-level security|policy|permission/i.test(error.message)) {
-      alert("This bet is already locked because kickoff has passed, or your database rules still need the latest schema update.");
+    if (/row-level security|policy|permission|json object requested/i.test(error.message)) {
+      alert("The bet was not removed in Supabase. It is either already locked, belongs to a different user session, or your database rules still need the latest schema update.");
       return;
     }
 
@@ -1113,8 +1120,13 @@ async function removeBet(bet) {
     return;
   }
 
-  state.bets = state.bets.filter((item) => item.id !== bet.id);
-  state.publicBets = state.publicBets.filter((item) => item.id !== bet.id);
+  if (!data?.id) {
+    alert("The bet was not removed in Supabase. Refresh the page and try again after updating the latest schema in Supabase.");
+    return;
+  }
+
+  state.bets = await loadBets();
+  await loadPublicPool();
   recalculatePublicBoard();
   setAuthMessage("Bet removed.");
   renderApp();
