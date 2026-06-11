@@ -1108,10 +1108,10 @@ async function removeBet(bet) {
     .eq("user_id", state.account.id)
     .gt("kickoff", new Date().toISOString())
     .select("id")
-    .single();
+    .maybeSingle();
 
   if (error) {
-    if (/row-level security|policy|permission|json object requested/i.test(error.message)) {
+    if (/row-level security|policy|permission|json object requested|single json object/i.test(error.message)) {
       alert("The bet was not removed in Supabase. It is either already locked, belongs to a different user session, or your database rules still need the latest schema update.");
       return;
     }
