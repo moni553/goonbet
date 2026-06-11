@@ -1101,27 +1101,48 @@ async function removeBet(bet) {
     return;
   }
 
-  const { data, error } = await state.supabase
-    .from("bets")
-    .delete()
-    .eq("id", bet.id)
-    .eq("user_id", state.account.id)
-    .gt("kickoff", new Date().toISOString())
-    .select("id")
-    .maybeSingle();
+  let deletedBetId = null;
+  const rpcResult = await state.supabase.rpc("delete_unlocked_bet", {
+    target_bet_id: bet.id,
+  });
 
-  if (error) {
-    if (/row-level security|policy|permission|json object requested|single json object/i.test(error.message)) {
+  if (!rpcResult.error) {
+    deletedBetId = rpcResult.data;
+  } else if (!/delete_unlocked_bet|function|schema cache/i.test(rpcResult.error.message)) {
+    if (/row-level security|policy|permission/i.test(rpcResult.error.message)) {
       alert("The bet was not removed in Supabase. It is either already locked, belongs to a different user session, or your database rules still need the latest schema update.");
       return;
     }
 
-    alert(error.message);
+    alert(rpcResult.error.message);
     return;
   }
 
-  if (!data?.id) {
-    alert("The bet was not removed in Supabase. Refresh the page and try again after updating the latest schema in Supabase.");
+  if (!deletedBetId) {
+    const fallbackResult = await state.supabase
+      .from("bets")
+      .delete()
+      .eq("id", bet.id)
+      .eq("user_id", state.account.id)
+      .gt("kickoff", new Date().toISOString())
+      .select("id")
+      .maybeSingle();
+
+    if (fallbackResult.error) {
+      if (/row-level security|policy|permission|json object requested|single json object/i.test(fallbackResult.error.message)) {
+        alert("The bet was not removed in Supabase. Run the new delete SQL fix in Supabase, then try again.");
+        return;
+      }
+
+      alert(fallbackResult.error.message);
+      return;
+    }
+
+    deletedBetId = fallbackResult.data?.id ?? null;
+  }
+
+  if (!deletedBetId) {
+    alert("The bet was not removed in Supabase. Run the new delete SQL fix in Supabase, refresh, and try again.");
     return;
   }
 

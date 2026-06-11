@@ -154,11 +154,31 @@ as $$
   order by bets.placed_at desc;
 $$;
 
+create or replace function public.delete_unlocked_bet(target_bet_id uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  deleted_id uuid;
+begin
+  delete from public.bets
+  where id = target_bet_id
+    and user_id = auth.uid()
+    and kickoff > now()
+  returning id into deleted_id;
+
+  return deleted_id;
+end;
+$$;
+
 grant usage on schema public to anon, authenticated;
 grant select, insert, update on public.profiles to authenticated;
 grant select, insert, delete on public.bets to authenticated;
 grant execute on function public.get_public_players() to anon, authenticated;
 grant execute on function public.get_public_bets() to anon, authenticated;
+grant execute on function public.delete_unlocked_bet(uuid) to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.bets enable row level security;
