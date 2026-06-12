@@ -335,3 +335,44 @@ export const demoMatches = rawDemoMatches.map((match, matchIndex) => {
     },
   };
 });
+
+export const demoFutures = [
+  {
+    id: "future-world-cup-winner",
+    marketType: "future_winner",
+    title: "World Cup winner",
+    subtitle: "Pick the nation that lifts the trophy.",
+    kickoff: "2026-07-01T12:00:00Z",
+    oddsSource: "Demo odds fallback",
+    oddsDetail: "Demo outright board. Locks before the knockout stretch.",
+    bookmaker: "Demo market",
+    options: [
+      { selection: "BRAZIL", label: "Brazil", odds: 5.4, origin: "Pinnacle" },
+      { selection: "ARGENTINA", label: "Argentina", odds: 6.1, origin: "Bet365" },
+      { selection: "FRANCE", label: "France", odds: 6.8, origin: "Betfair" },
+      { selection: "SPAIN", label: "Spain", odds: 8.4, origin: "Pinnacle" },
+      { selection: "ENGLAND", label: "England", odds: 8.9, origin: "Bet365" },
+      { selection: "GERMANY", label: "Germany", odds: 10.5, origin: "Betfair" },
+    ],
+    resultSelection: null,
+  },
+  {
+    id: "future-top-scorer",
+    marketType: "future_top_scorer",
+    title: "Top scorer",
+    subtitle: "Pick the player who finishes with the most goals.",
+    kickoff: "2026-07-01T12:00:00Z",
+    oddsSource: "Demo odds fallback",
+    oddsDetail: "Demo golden boot board. Locks at the same time as the winner market.",
+    bookmaker: "Demo market",
+    options: [
+      { selection: "MBAPPE", label: "Kylian Mbappe", odds: 9.0, origin: "Bet365" },
+      { selection: "KANE", label: "Harry Kane", odds: 10.5, origin: "Pinnacle" },
+      { selection: "VINICIUS", label: "Vinicius Junior", odds: 12.0, origin: "Betfair" },
+      { selection: "LAUTARO", label: "Lautaro Martinez", odds: 14.5, origin: "Pinnacle" },
+      { selection: "BELLINGHAM", label: "Jude Bellingham", odds: 18.0, origin: "Bet365" },
+      { selection: "ALVAREZ", label: "Julian Alvarez", odds: 18.0, origin: "Betfair" },
+    ],
+    resultSelection: null,
+  },
+];

@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
-import { demoMatches, simpleConfig } from "./data/simple-app-data.js";
+import { demoFutures, demoMatches, simpleConfig } from "./data/simple-app-data.js";
 
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9_-]{2,23}$/;
 const USERNAME_EMAIL_DOMAIN = "players.goonbet.app";
@@ -20,6 +20,7 @@ const state = {
   authMessage: "",
   bets: [],
   betDrafts: {},
+  futures: [],
   matches: [],
   meta: defaultMeta(),
   publicBets: [],
@@ -117,6 +118,32 @@ function normalizePublicPlayer(player) {
   };
 }
 
+function normalizeFutureMarket(market) {
+  return {
+    away: market.subtitle ?? "Tournament special",
+    bookmaker: market.bookmaker ?? "No bookmaker yet",
+    bookmakerCount: market.options?.length ?? 0,
+    fixtureSource: market.fixtureSource ?? "Tournament specials board",
+    group: "Tournament specials",
+    home: market.title ?? "Tournament special",
+    id: market.id,
+    kickoff: market.kickoff,
+    marketType: market.marketType,
+    oddsDetail: market.oddsDetail ?? "No future prices loaded yet.",
+    oddsSource: market.oddsSource ?? simpleConfig.fallbackOddsSourceLabel,
+    options: (market.options ?? []).map((option) => ({
+      label: option.label,
+      odds: Number(option.odds),
+      origin: option.origin ?? market.bookmaker ?? "No bookmaker yet",
+      selection: option.selection,
+    })),
+    resultSelection: market.resultSelection ?? null,
+    status: market.status ?? "SCHEDULED",
+    subtitle: market.subtitle ?? "Tournament special",
+    title: market.title ?? "Tournament special",
+  };
+}
+
 function readPublicConfig() {
   return window.GOONBET_CONFIG ?? {};
 }
@@ -190,8 +217,52 @@ function roundPayout(value) {
   return Math.round(Number(value) || 0);
 }
 
+function isFutureMarketType(marketType) {
+  return marketType === "future_winner" || marketType === "future_top_scorer";
+}
+
 function matchById(matchId) {
   return state.matches.find((match) => match.id === matchId) ?? null;
+}
+
+function futureById(matchId) {
+  return state.futures.find((future) => future.id === matchId) ?? null;
+}
+
+function futureOptionBySelection(future, selection) {
+  return future?.options?.find((option) => option.selection === selection) ?? null;
+}
+
+function betDisplayTitle(bet) {
+  return isFutureMarketType(bet.marketType) ? bet.home : `${bet.home} vs ${bet.away}`;
+}
+
+function betContextLabel(bet) {
+  return isFutureMarketType(bet.marketType) ? bet.home : `${bet.home} vs ${bet.away}`;
+}
+
+function betMarketLabel(bet) {
+  if (bet.marketType === "totals") {
+    return `Over / Under ${bet.marketLine?.toFixed(1) ?? ""}`.trim();
+  }
+
+  if (bet.marketType === "future_winner") {
+    return "World Cup winner";
+  }
+
+  if (bet.marketType === "future_top_scorer") {
+    return "Top scorer";
+  }
+
+  return "Match result";
+}
+
+function futureResultLabel(future) {
+  return futureOptionBySelection(future, future?.resultSelection)?.label ?? future?.resultSelection ?? "No result yet";
+}
+
+function marketLocked(item) {
+  return new Date(item.kickoff).getTime() <= Date.now();
 }
 
 function matchPhase(match) {
@@ -205,7 +276,7 @@ function matchPhase(match) {
     return "LIVE";
   }
 
-  if (match?.kickoff && new Date(match.kickoff).getTime() <= Date.now()) {
+  if (match?.kickoff && marketLocked(match)) {
     return "LOCKED";
   }
 
@@ -246,6 +317,36 @@ function matchOutcome(match) {
 }
 
 function evaluateBet(bet) {
+  if (isFutureMarketType(bet.marketType)) {
+    const future = futureById(bet.matchId);
+    const phase = future ? matchPhase(future) : new Date(bet.kickoff).getTime() <= Date.now() ? "LOCKED" : "SCHEDULED";
+
+    if (!future?.resultSelection) {
+      return {
+        future,
+        isSettled: false,
+        match: null,
+        net: 0,
+        payout: 0,
+        phase,
+        result: "OPEN",
+      };
+    }
+
+    const won = future.resultSelection === bet.selection;
+    const payout = won ? roundPayout(bet.stake * bet.odds) : 0;
+
+    return {
+      future,
+      isSettled: true,
+      match: null,
+      net: won ? payout - bet.stake : -bet.stake,
+      payout,
+      phase,
+      result: won ? "WON" : "LOST",
+    };
+  }
+
   const match = matchById(bet.matchId);
   const phase = match ? matchPhase(match) : new Date(bet.kickoff).getTime() <= Date.now() ? "LOCKED" : "SCHEDULED";
 
@@ -499,7 +600,7 @@ function buildPublicBoard() {
     .flatMap((bet) => {
       const events = [
         {
-          detail: `${bet.home} vs ${bet.away} | ${bet.selectionLabel} @ ${bet.odds.toFixed(2)}`,
+          detail: `${betContextLabel(bet)} | ${bet.selectionLabel} @ ${bet.odds.toFixed(2)}`,
           displayName: bet.displayName ?? "Player",
           id: `placed-${bet.id}`,
           time: new Date(bet.placedAt ?? bet.kickoff).getTime(),
@@ -508,16 +609,18 @@ function buildPublicBoard() {
         },
       ];
 
-      if (!bet.settlement.isSettled || !bet.settlement.match) {
+      if (!bet.settlement.isSettled) {
         return events;
       }
 
-      const finishedScore = scorelineLabel(bet.settlement.match);
-      const settledAt = new Date(bet.settlement.match.kickoff).getTime() + 2 * 60 * 60 * 1000;
+      const settledAt = new Date(bet.kickoff).getTime() + 2 * 60 * 60 * 1000;
+      const settledDetail = bet.settlement.future
+        ? `${betContextLabel(bet)} settled | Winner: ${futureResultLabel(bet.settlement.future)}`
+        : `${betContextLabel(bet)} finished ${scorelineLabel(bet.settlement.match)}`;
 
       if (bet.settlement.result === "WON") {
         events.unshift({
-          detail: `${bet.home} vs ${bet.away} finished ${finishedScore} | Net ${formatSignedMoney(bet.settlement.net)}`,
+          detail: `${settledDetail} | Net ${formatSignedMoney(bet.settlement.net)}`,
           displayName: bet.displayName ?? "Player",
           id: `won-${bet.id}`,
           time: settledAt,
@@ -526,7 +629,7 @@ function buildPublicBoard() {
         });
       } else if (bet.settlement.result === "PUSH") {
         events.unshift({
-          detail: `${bet.home} vs ${bet.away} finished ${finishedScore} | Stake returned`,
+          detail: `${settledDetail} | Stake returned`,
           displayName: bet.displayName ?? "Player",
           id: `push-${bet.id}`,
           time: settledAt,
@@ -535,7 +638,7 @@ function buildPublicBoard() {
         });
       } else {
         events.unshift({
-          detail: `${bet.home} vs ${bet.away} finished ${finishedScore}`,
+          detail: settledDetail,
           displayName: bet.displayName ?? "Player",
           id: `lost-${bet.id}`,
           time: settledAt,
@@ -585,7 +688,7 @@ function syncHero() {
     },
     {
       title: "Matches",
-      copy: `${state.matches.length} matches currently on the board.`,
+      copy: `${state.matches.length} matches and ${state.futures.length} long-term specials currently on the board.`,
     },
     {
       title: "Leader",
@@ -728,6 +831,10 @@ function renderWeeks() {
 }
 
 function selectionPrice(match, marketType, selection) {
+  if (isFutureMarketType(marketType)) {
+    return futureOptionBySelection(match, selection)?.odds ?? null;
+  }
+
   if (marketType === "totals") {
     return match.totals?.[selection] ?? null;
   }
@@ -735,8 +842,20 @@ function selectionPrice(match, marketType, selection) {
   return match.odds?.[selection] ?? null;
 }
 
+function selectionOrigin(match, marketType, selection) {
+  if (isFutureMarketType(marketType)) {
+    return futureOptionBySelection(match, selection)?.origin ?? match.bookmaker;
+  }
+
+  if (marketType === "totals") {
+    return match.totalsOrigins?.[selection] ?? match.bookmaker;
+  }
+
+  return match.oddsOrigins?.[selection] ?? match.bookmaker;
+}
+
 function selectionDisabled(match, marketType, selection, existing) {
-  return !state.account || Boolean(existing) || !selectionPrice(match, marketType, selection);
+  return !state.account || marketLocked(match) || Boolean(existing) || !selectionPrice(match, marketType, selection);
 }
 
 function draftStakeNumber(matchId, marketType) {
@@ -747,6 +866,7 @@ function canPlaceDraft(match, marketType, existing) {
   const draft = getBetDraft(match.id, marketType);
   return Boolean(
     state.account &&
+      !marketLocked(match) &&
       !existing &&
       draft.selection &&
       selectionPrice(match, marketType, draft.selection),
@@ -782,6 +902,14 @@ function quoteMarkup(match) {
 }
 
 function marketBadge(match, marketType) {
+  if (marketType === "future_winner") {
+    return "World Cup winner";
+  }
+
+  if (marketType === "future_top_scorer") {
+    return "Top scorer";
+  }
+
   if (marketType === "totals") {
     return match.totals?.point ? `Over / Under ${match.totals.point.toFixed(1)}` : "Over / Under";
   }
@@ -790,6 +918,10 @@ function marketBadge(match, marketType) {
 }
 
 function selectionLabel(match, selection, marketType) {
+  if (isFutureMarketType(marketType)) {
+    return futureOptionBySelection(match, selection)?.label ?? selection;
+  }
+
   if (marketType === "totals") {
     const point = match.totals?.point?.toFixed(1) ?? "2.5";
     return selection === "OVER" ? `Over ${point} goals` : `Under ${point} goals`;
@@ -802,6 +934,131 @@ function selectionLabel(match, selection, marketType) {
     return `${match.away} win`;
   }
   return "Draw";
+}
+
+function renderFutureMarkets() {
+  const container = document.getElementById("future-market-list");
+
+  if (!state.futures.length) {
+    container.innerHTML = `<div class="empty-state">No long-term specials are loaded right now.</div>`;
+    return;
+  }
+
+  container.innerHTML = state.futures
+    .map((future) => {
+      const existingBet = findExistingBet(future.id, future.marketType);
+      const draft = getBetDraft(future.id, future.marketType);
+
+      return `
+        <article class="future-card">
+          <div class="future-top">
+            <div>
+              <div class="small-note">${escapeHtml(formatKickoff(future.kickoff))} lock time</div>
+              <h3>${escapeHtml(future.title)}</h3>
+              <div class="future-subline">${escapeHtml(future.subtitle)}</div>
+            </div>
+            <span class="tag">${escapeHtml(future.oddsSource)}</span>
+          </div>
+          <div class="market-section">
+            <div class="market-head">
+              <strong>${escapeHtml(marketBadge(future, future.marketType))}</strong>
+              <span>${escapeHtml(future.oddsDetail)}</span>
+            </div>
+            <div class="future-options">
+              ${future.options
+                .map(
+                  (option) => `
+                    <button
+                      class="odd-button ${draft.selection === option.selection ? "selected" : ""}"
+                      type="button"
+                      data-future-selection="true"
+                      data-match-id="${escapeHtml(future.id)}"
+                      data-market-type="${escapeHtml(future.marketType)}"
+                      data-selection="${escapeHtml(option.selection)}"
+                      ${selectionDisabled(future, future.marketType, option.selection, existingBet) ? "disabled" : ""}
+                    >
+                      <strong>${escapeHtml(option.label)}</strong>
+                      <span>${option.odds.toFixed(2)}</span>
+                      <span>Best from ${escapeHtml(option.origin)}</span>
+                    </button>
+                  `,
+                )
+                .join("")}
+            </div>
+            <div class="bet-action-bar">
+              <label class="field" for="stake-${escapeHtml(future.id)}-${escapeHtml(future.marketType)}">
+                <span>Stake</span>
+                <input
+                  id="stake-${escapeHtml(future.id)}-${escapeHtml(future.marketType)}"
+                  type="number"
+                  min="10"
+                  max="${simpleConfig.maxStake}"
+                  value="${escapeHtml(draft.stake)}"
+                  data-future-stake="true"
+                  data-match-id="${escapeHtml(future.id)}"
+                  data-market-type="${escapeHtml(future.marketType)}"
+                />
+              </label>
+              <button
+                class="button primary"
+                type="button"
+                data-future-place="true"
+                data-match-id="${escapeHtml(future.id)}"
+                data-market-type="${escapeHtml(future.marketType)}"
+                ${canPlaceDraft(future, future.marketType, existingBet) ? "" : "disabled"}
+              >
+                Place bet
+              </button>
+            </div>
+            <div class="small-note">
+              ${
+                existingBet
+                  ? `Already bet: ${escapeHtml(existingBet.selectionLabel)} at ${existingBet.odds.toFixed(2)}`
+                  : !state.account
+                    ? "Log in first to place a long-term bet."
+                    : marketLocked(future)
+                      ? "This long-term market is locked now."
+                    : !draft.selection
+                      ? "1. Choose your long-term pick. 2. Enter a stake. 3. Press Place bet."
+                      : `Selected: ${escapeHtml(selectionLabel(future, draft.selection, future.marketType))}. Press Place bet to confirm.`
+              }
+            </div>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+
+  document.querySelectorAll("[data-future-selection='true']").forEach((button) => {
+    button.addEventListener("click", () => {
+      updateBetDraft(button.dataset.matchId, button.dataset.marketType, {
+        selection: button.dataset.selection,
+      });
+      renderFutureMarkets();
+    });
+  });
+
+  document.querySelectorAll("[data-future-stake='true']").forEach((input) => {
+    input.addEventListener("input", () => {
+      updateBetDraft(input.dataset.matchId, input.dataset.marketType, {
+        stake: input.value,
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-future-place='true']").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const future = futureById(button.dataset.matchId);
+      const marketType = button.dataset.marketType;
+      const draft = getBetDraft(button.dataset.matchId, marketType);
+
+      if (!future) {
+        return;
+      }
+
+      await placeBet(future, draft.selection, draftStakeNumber(future.id, marketType), marketType);
+    });
+  });
 }
 
 function renderMatches() {
@@ -892,6 +1149,8 @@ function renderMatches() {
                   ? `Already bet: ${escapeHtml(existingResult.selectionLabel)} at ${existingResult.odds.toFixed(2)}`
                   : !state.account
                     ? "Log in first to place a bet."
+                    : marketLocked(match)
+                      ? "Betting is locked because kickoff has passed."
                     : !match.odds.HOME
                       ? "Fixture loaded, but there are no live 1X2 prices yet."
                       : !resultDraft.selection
@@ -962,6 +1221,8 @@ function renderMatches() {
                   ? `Already bet: ${escapeHtml(existingTotals.selectionLabel)} at ${existingTotals.odds.toFixed(2)}`
                   : !state.account
                     ? "Log in first to place a bet."
+                    : marketLocked(match)
+                      ? "Betting is locked because kickoff has passed."
                     : !match.totals?.OVER
                       ? "This bookmaker feed does not have a live over/under line for the match yet."
                       : !totalsDraft.selection
@@ -1005,11 +1266,16 @@ function renderMatches() {
 }
 
 function canDeleteBet(bet) {
-  return new Date(bet.kickoff).getTime() > Date.now();
+  return !marketLocked(bet);
 }
 
 async function placeBet(match, selection, stake, marketType) {
   if (!state.account || !state.supabase) {
+    return;
+  }
+
+  if (marketLocked(match)) {
+    alert("That market is locked already, so no new bets can be placed on it.");
     return;
   }
 
@@ -1036,10 +1302,7 @@ async function placeBet(match, selection, stake, marketType) {
 
   const payload = {
     away: match.away,
-    bookmaker:
-      marketType === "totals"
-        ? match.totalsOrigins?.[selection] ?? match.bookmaker
-        : match.oddsOrigins?.[selection] ?? match.bookmaker,
+    bookmaker: selectionOrigin(match, marketType, selection),
     home: match.home,
     kickoff: match.kickoff,
     market_line: marketType === "totals" ? match.totals?.point ?? null : null,
@@ -1061,8 +1324,8 @@ async function placeBet(match, selection, stake, marketType) {
       return;
     }
 
-    if (/market_type|market_line|schema cache/i.test(error.message)) {
-      alert("Your Supabase table is missing the new over/under columns. Re-run the latest schema.sql in Supabase, then try again.");
+    if (/market_type|market_line|schema cache|bets_market_type_check|bets_selection_check/i.test(error.message)) {
+      alert("Your Supabase table is missing the newest betting columns or market rules. Re-run the latest schema.sql in Supabase, then try again.");
       return;
     }
 
@@ -1275,10 +1538,7 @@ function renderMyBets() {
     .slice()
     .sort((left, right) => new Date(right.bet.placedAt) - new Date(left.bet.placedAt))
     .map(({ bet, settlement }) => {
-      const marketLabel =
-        bet.marketType === "totals"
-          ? `Over / Under ${bet.marketLine?.toFixed(1) ?? ""}`.trim()
-          : "Match result";
+      const marketLabel = betMarketLabel(bet);
       const payoutMarkup = settlement.isSettled
         ? `
           <div class="bet-row">
@@ -1291,7 +1551,11 @@ function renderMyBets() {
               )}
             </strong>
           </div>
-          <div class="small-note">Final score: ${escapeHtml(scorelineLabel(settlement.match))}</div>
+          <div class="small-note">${
+            settlement.future
+              ? `Settled winner: ${escapeHtml(futureResultLabel(settlement.future))}`
+              : `Final score: ${escapeHtml(scorelineLabel(settlement.match))}`
+          }</div>
         `
         : "";
 
@@ -1308,7 +1572,8 @@ function renderMyBets() {
       return `
         <article class="bet-card">
           <div class="small-note">${escapeHtml(formatKickoff(bet.kickoff))}</div>
-          <h3>${escapeHtml(bet.home)} vs ${escapeHtml(bet.away)}</h3>
+          <h3>${escapeHtml(betDisplayTitle(bet))}</h3>
+          ${isFutureMarketType(bet.marketType) ? `<div class="small-note">${escapeHtml(bet.away)}</div>` : ""}
           <div class="bet-row">
             <span>Market</span>
             <strong>${escapeHtml(marketLabel)}</strong>
@@ -1392,6 +1657,11 @@ async function loadMatches() {
     state.selectedWeek = "all";
   }
 
+  recalculatePublicBoard();
+}
+
+function loadFutures() {
+  state.futures = demoFutures.map(normalizeFutureMarket);
   recalculatePublicBoard();
 }
 
@@ -1645,6 +1915,7 @@ function renderApp() {
   renderAuthControls();
   renderAccount();
   renderWeeks();
+  renderFutureMarkets();
   renderMatches();
   renderLeaderboard();
   renderActivityLog();
@@ -1654,6 +1925,7 @@ function renderApp() {
 
 async function start() {
   attachEvents();
+  loadFutures();
   await loadMatches();
   await setupSupabase();
   renderApp();

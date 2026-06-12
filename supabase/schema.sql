@@ -30,10 +30,10 @@ alter table public.bets add column if not exists market_type text not null defau
 alter table public.bets add column if not exists market_line numeric(6, 2);
 
 alter table public.bets drop constraint if exists bets_selection_check;
-alter table public.bets add constraint bets_selection_check check (selection in ('HOME', 'DRAW', 'AWAY', 'OVER', 'UNDER'));
+alter table public.bets add constraint bets_selection_check check (char_length(trim(selection)) > 0);
 
 alter table public.bets drop constraint if exists bets_market_type_check;
-alter table public.bets add constraint bets_market_type_check check (market_type in ('match_result', 'totals'));
+alter table public.bets add constraint bets_market_type_check check (market_type in ('match_result', 'totals', 'future_winner', 'future_top_scorer'));
 
 alter table public.bets drop constraint if exists bets_stake_check;
 alter table public.bets add constraint bets_stake_check check (stake >= 10 and stake <= 200);

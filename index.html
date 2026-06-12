@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GoonBet | Public World Cup Betting Board</title>
-    <link rel="stylesheet" href="./styles.css?v=goonbet-board-1" />
+    <link rel="stylesheet" href="./styles.css?v=goonbet-futures-1" />
   </head>
   <body>
     <div class="page-shell">
@@ -39,22 +39,34 @@
       </header>
 
       <main class="main-grid">
-        <section class="panel">
-          <div class="section-head">
-            <div>
-              <p class="section-kicker">Matches</p>
-              <h2>Upcoming weekly board</h2>
+        <div class="content-stack">
+          <section class="panel">
+            <div class="section-head compact-head">
+              <div>
+                <p class="section-kicker">Long-term bets</p>
+                <h2>Tournament specials</h2>
+              </div>
             </div>
-            <div class="search-block">
-              <label class="field" for="search-input">
-                <span>Search matches</span>
-                <input id="search-input" type="search" placeholder="Search by team, group, or week" />
-              </label>
+            <div id="future-market-list" class="future-market-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <div>
+                <p class="section-kicker">Matches</p>
+                <h2>Upcoming weekly board</h2>
+              </div>
+              <div class="search-block">
+                <label class="field" for="search-input">
+                  <span>Search matches</span>
+                  <input id="search-input" type="search" placeholder="Search by team, group, or week" />
+                </label>
+              </div>
             </div>
-          </div>
-          <div id="week-tabs" class="week-tabs"></div>
-          <div id="match-list" class="match-list"></div>
-        </section>
+            <div id="week-tabs" class="week-tabs"></div>
+            <div id="match-list" class="match-list"></div>
+          </section>
+        </div>
 
         <aside class="side-stack">
           <section class="panel">
@@ -90,7 +102,7 @@
       </main>
     </div>
 
-    <script src="./app-config.js?v=goonbet-board-1"></script>
-    <script type="module" src="./app.js?v=goonbet-board-1"></script>
+    <script src="./app-config.js?v=goonbet-futures-1"></script>
+    <script type="module" src="./app.js?v=goonbet-futures-1"></script>
   </body>
 </html>
