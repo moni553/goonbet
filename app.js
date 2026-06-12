@@ -31,6 +31,7 @@ const state = {
   publicPlayers: [],
   publicPoolMessage: "",
   search: "",
+  selectedBoardTab: "matches",
   selectedWeek: "all",
   supabase: null,
   supabaseConfigured: false,
@@ -828,6 +829,46 @@ function renderWeeks() {
       renderMatches();
     });
   });
+}
+
+function renderBoardTabs() {
+  const container = document.getElementById("board-tabs");
+  const tabs = [
+    {
+      id: "matches",
+      title: "Weekly matches",
+      copy: `${state.matches.length} match bets`,
+    },
+    {
+      id: "futures",
+      title: "Tournament specials",
+      copy: `${state.futures.length} long-term bets`,
+    },
+  ];
+
+  container.innerHTML = tabs
+    .map(
+      (tab) => `
+        <button class="board-tab ${state.selectedBoardTab === tab.id ? "active" : ""}" data-board-tab="${escapeHtml(tab.id)}" type="button">
+          <strong>${escapeHtml(tab.title)}</strong>
+          <span>${escapeHtml(tab.copy)}</span>
+        </button>
+      `,
+    )
+    .join("");
+
+  document.querySelectorAll("[data-board-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedBoardTab = button.dataset.boardTab;
+      renderBoardTabs();
+      renderBoardPanels();
+    });
+  });
+}
+
+function renderBoardPanels() {
+  document.getElementById("matches-panel").classList.toggle("hidden", state.selectedBoardTab !== "matches");
+  document.getElementById("future-panel").classList.toggle("hidden", state.selectedBoardTab !== "futures");
 }
 
 function selectionPrice(match, marketType, selection) {
@@ -1914,6 +1955,8 @@ function renderApp() {
   syncHero();
   renderAuthControls();
   renderAccount();
+  renderBoardTabs();
+  renderBoardPanels();
   renderWeeks();
   renderFutureMarkets();
   renderMatches();

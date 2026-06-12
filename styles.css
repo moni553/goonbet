@@ -154,6 +154,49 @@ body {
   min-width: min(18rem, 100%);
 }
 
+.board-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.board-tab {
+  min-height: 3.35rem;
+  padding: 0.85rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(23, 32, 24, 0.12);
+  background: rgba(255, 255, 255, 0.78);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    transform 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.board-tab:hover {
+  border-color: rgba(30, 112, 72, 0.28);
+  transform: translateY(-1px);
+}
+
+.board-tab.active {
+  border-color: rgba(30, 112, 72, 0.42);
+  background: rgba(30, 112, 72, 0.09);
+  box-shadow: 0 10px 24px rgba(27, 33, 24, 0.06);
+}
+
+.board-tab strong,
+.board-tab span {
+  display: block;
+}
+
+.board-tab span {
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .compact-head {
   margin-bottom: 0.75rem;
 }
@@ -599,6 +642,7 @@ input {
   }
 
   .hero-stats,
+  .board-tabs,
   .week-tabs,
   .odds-grid,
   .totals-grid,
