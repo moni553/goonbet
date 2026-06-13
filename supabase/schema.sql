@@ -40,6 +40,8 @@ alter table public.bets add constraint bets_market_type_check check (
     'shots_on_target',
     'yellow_cards',
     'red_cards',
+    'player_shots_on_target',
+    'player_booked',
     'future_winner',
     'future_top_scorer'
   )

@@ -336,6 +336,239 @@ export const demoMatches = rawDemoMatches.map((match, matchIndex) => {
   };
 });
 
+export const fallbackTeamPlayers = {
+  Argentina: [
+    { name: "Lautaro Martinez", role: "attacker" },
+    { name: "Julian Alvarez", role: "attacker" },
+    { name: "Enzo Fernandez", role: "midfielder" },
+  ],
+  Australia: [
+    { name: "Kusini Yengi", role: "attacker" },
+    { name: "Martin Boyle", role: "attacker" },
+    { name: "Jackson Irvine", role: "midfielder" },
+  ],
+  Austria: [
+    { name: "Marcel Sabitzer", role: "midfielder" },
+    { name: "Michael Gregoritsch", role: "attacker" },
+    { name: "Christoph Baumgartner", role: "midfielder" },
+  ],
+  Belgium: [
+    { name: "Romelu Lukaku", role: "attacker" },
+    { name: "Jeremy Doku", role: "attacker" },
+    { name: "Amadou Onana", role: "midfielder" },
+  ],
+  "Bosnia and Herzegovina": [
+    { name: "Edin Dzeko", role: "attacker" },
+    { name: "Ermedin Demirovic", role: "attacker" },
+    { name: "Amar Dedic", role: "defender" },
+  ],
+  Brazil: [
+    { name: "Vinicius Junior", role: "attacker" },
+    { name: "Rodrygo", role: "attacker" },
+    { name: "Bruno Guimaraes", role: "midfielder" },
+  ],
+  Canada: [
+    { name: "Jonathan David", role: "attacker" },
+    { name: "Cyle Larin", role: "attacker" },
+    { name: "Stephen Eustaquio", role: "midfielder" },
+  ],
+  Colombia: [
+    { name: "Luis Diaz", role: "attacker" },
+    { name: "Jhon Duran", role: "attacker" },
+    { name: "Jefferson Lerma", role: "midfielder" },
+  ],
+  Croatia: [
+    { name: "Andrej Kramaric", role: "attacker" },
+    { name: "Luka Modric", role: "midfielder" },
+    { name: "Mateo Kovacic", role: "midfielder" },
+  ],
+  Czechia: [
+    { name: "Patrik Schick", role: "attacker" },
+    { name: "Vaclav Cerny", role: "attacker" },
+    { name: "Tomas Soucek", role: "midfielder" },
+  ],
+  "Czech Republic": [
+    { name: "Patrik Schick", role: "attacker" },
+    { name: "Vaclav Cerny", role: "attacker" },
+    { name: "Tomas Soucek", role: "midfielder" },
+  ],
+  Ecuador: [
+    { name: "Enner Valencia", role: "attacker" },
+    { name: "Jeremy Sarmiento", role: "attacker" },
+    { name: "Moises Caicedo", role: "midfielder" },
+  ],
+  Egypt: [
+    { name: "Mohamed Salah", role: "attacker" },
+    { name: "Omar Marmoush", role: "attacker" },
+    { name: "Hamdi Fathi", role: "midfielder" },
+  ],
+  England: [
+    { name: "Harry Kane", role: "attacker" },
+    { name: "Bukayo Saka", role: "attacker" },
+    { name: "Declan Rice", role: "midfielder" },
+  ],
+  France: [
+    { name: "Kylian Mbappe", role: "attacker" },
+    { name: "Ousmane Dembele", role: "attacker" },
+    { name: "Aurelien Tchouameni", role: "midfielder" },
+  ],
+  Germany: [
+    { name: "Jamal Musiala", role: "attacker" },
+    { name: "Kai Havertz", role: "attacker" },
+    { name: "Robert Andrich", role: "midfielder" },
+  ],
+  Ghana: [
+    { name: "Mohammed Kudus", role: "attacker" },
+    { name: "Antoine Semenyo", role: "attacker" },
+    { name: "Thomas Partey", role: "midfielder" },
+  ],
+  Iran: [
+    { name: "Mehdi Taremi", role: "attacker" },
+    { name: "Sardar Azmoun", role: "attacker" },
+    { name: "Saeid Ezatolahi", role: "midfielder" },
+  ],
+  Iraq: [
+    { name: "Aymen Hussein", role: "attacker" },
+    { name: "Ali Jasim", role: "attacker" },
+    { name: "Osama Rashid", role: "midfielder" },
+  ],
+  Japan: [
+    { name: "Ayase Ueda", role: "attacker" },
+    { name: "Takefusa Kubo", role: "attacker" },
+    { name: "Wataru Endo", role: "midfielder" },
+  ],
+  Jordan: [
+    { name: "Musa Al-Taamari", role: "attacker" },
+    { name: "Yazan Al-Naimat", role: "attacker" },
+    { name: "Nizar Al-Rashdan", role: "midfielder" },
+  ],
+  Mexico: [
+    { name: "Santiago Gimenez", role: "attacker" },
+    { name: "Hirving Lozano", role: "attacker" },
+    { name: "Edson Alvarez", role: "midfielder" },
+  ],
+  Morocco: [
+    { name: "Youssef En-Nesyri", role: "attacker" },
+    { name: "Brahim Diaz", role: "attacker" },
+    { name: "Sofyan Amrabat", role: "midfielder" },
+  ],
+  Netherlands: [
+    { name: "Cody Gakpo", role: "attacker" },
+    { name: "Memphis Depay", role: "attacker" },
+    { name: "Tijjani Reijnders", role: "midfielder" },
+  ],
+  "New Zealand": [
+    { name: "Chris Wood", role: "attacker" },
+    { name: "Ben Waine", role: "attacker" },
+    { name: "Joe Bell", role: "midfielder" },
+  ],
+  Norway: [
+    { name: "Erling Haaland", role: "attacker" },
+    { name: "Alexander Sorloth", role: "attacker" },
+    { name: "Martin Odegaard", role: "midfielder" },
+  ],
+  Panama: [
+    { name: "Jose Fajardo", role: "attacker" },
+    { name: "Ismael Diaz", role: "attacker" },
+    { name: "Adalberto Carrasquilla", role: "midfielder" },
+  ],
+  Paraguay: [
+    { name: "Miguel Almiron", role: "attacker" },
+    { name: "Julio Enciso", role: "attacker" },
+    { name: "Andres Cubas", role: "midfielder" },
+  ],
+  Portugal: [
+    { name: "Goncalo Ramos", role: "attacker" },
+    { name: "Rafael Leao", role: "attacker" },
+    { name: "Joao Palhinha", role: "midfielder" },
+  ],
+  Qatar: [
+    { name: "Akram Afif", role: "attacker" },
+    { name: "Almoez Ali", role: "attacker" },
+    { name: "Assim Madibo", role: "midfielder" },
+  ],
+  "Saudi Arabia": [
+    { name: "Salem Al-Dawsari", role: "attacker" },
+    { name: "Firas Al-Buraikan", role: "attacker" },
+    { name: "Ali Al-Hassan", role: "midfielder" },
+  ],
+  Scotland: [
+    { name: "Che Adams", role: "attacker" },
+    { name: "Scott McTominay", role: "midfielder" },
+    { name: "Billy Gilmour", role: "midfielder" },
+  ],
+  Serbia: [
+    { name: "Aleksandar Mitrovic", role: "attacker" },
+    { name: "Dusan Vlahovic", role: "attacker" },
+    { name: "Sasa Lukic", role: "midfielder" },
+  ],
+  Senegal: [
+    { name: "Nicolas Jackson", role: "attacker" },
+    { name: "Ismaila Sarr", role: "attacker" },
+    { name: "Idrissa Gueye", role: "midfielder" },
+  ],
+  "South Africa": [
+    { name: "Percy Tau", role: "attacker" },
+    { name: "Evidence Makgopa", role: "attacker" },
+    { name: "Teboho Mokoena", role: "midfielder" },
+  ],
+  "South Korea": [
+    { name: "Son Heung-min", role: "attacker" },
+    { name: "Hwang Hee-chan", role: "attacker" },
+    { name: "Hwang In-beom", role: "midfielder" },
+  ],
+  Spain: [
+    { name: "Alvaro Morata", role: "attacker" },
+    { name: "Lamine Yamal", role: "attacker" },
+    { name: "Rodri", role: "midfielder" },
+  ],
+  Denmark: [
+    { name: "Rasmus Hojlund", role: "attacker" },
+    { name: "Jonas Wind", role: "attacker" },
+    { name: "Pierre-Emile Hojbjerg", role: "midfielder" },
+  ],
+  Italy: [
+    { name: "Giacomo Raspadori", role: "attacker" },
+    { name: "Federico Chiesa", role: "attacker" },
+    { name: "Nicolo Barella", role: "midfielder" },
+  ],
+  Switzerland: [
+    { name: "Breel Embolo", role: "attacker" },
+    { name: "Dan Ndoye", role: "attacker" },
+    { name: "Granit Xhaka", role: "midfielder" },
+  ],
+  Tunisia: [
+    { name: "Youssef Msakni", role: "attacker" },
+    { name: "Elias Achouri", role: "attacker" },
+    { name: "Aissa Laidouni", role: "midfielder" },
+  ],
+  Turkey: [
+    { name: "Kenan Yildiz", role: "attacker" },
+    { name: "Arda Guler", role: "attacker" },
+    { name: "Hakan Calhanoglu", role: "midfielder" },
+  ],
+  "United States": [
+    { name: "Christian Pulisic", role: "attacker" },
+    { name: "Folarin Balogun", role: "attacker" },
+    { name: "Weston McKennie", role: "midfielder" },
+  ],
+  USA: [
+    { name: "Christian Pulisic", role: "attacker" },
+    { name: "Folarin Balogun", role: "attacker" },
+    { name: "Weston McKennie", role: "midfielder" },
+  ],
+  Uruguay: [
+    { name: "Darwin Nunez", role: "attacker" },
+    { name: "Facundo Pellistri", role: "attacker" },
+    { name: "Manuel Ugarte", role: "midfielder" },
+  ],
+  Uzbekistan: [
+    { name: "Eldor Shomurodov", role: "attacker" },
+    { name: "Jaloliddin Masharipov", role: "attacker" },
+    { name: "Otabek Shukurov", role: "midfielder" },
+  ],
+};
+
 const demoWinnerOptions = [
   { selection: "BRAZIL", label: "Brazil", odds: 5.4, origin: "Pinnacle" },
   { selection: "ARGENTINA", label: "Argentina", odds: 6.1, origin: "Pinnacle" },

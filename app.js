@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
-import { demoFutures, demoMatches, simpleConfig } from "./data/simple-app-data.js";
+import { demoFutures, demoMatches, fallbackTeamPlayers, simpleConfig } from "./data/simple-app-data.js";
 
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9_-]{2,23}$/;
 const USERNAME_EMAIL_DOMAIN = "players.goonbet.app";
@@ -77,6 +77,7 @@ function defaultFuturePayload(note) {
 
 function normalizeMatch(match) {
   const fallbackProps = buildFallbackMatchProps(match);
+  const fallbackPlayerProps = buildFallbackPlayerProps(match);
 
   return {
     bookmaker: match.bookmaker ?? "No bookmaker yet",
@@ -95,6 +96,13 @@ function normalizeMatch(match) {
     score: {
       home: Number.isFinite(match.score?.home) ? Number(match.score.home) : null,
       away: Number.isFinite(match.score?.away) ? Number(match.score.away) : null,
+    },
+    playerBookedOptions: match.playerBookedOptions ?? fallbackPlayerProps.playerBookedOptions,
+    playerPropsDetail: match.playerPropsDetail || fallbackPlayerProps.detail,
+    playerShotsOnTargetOptions: match.playerShotsOnTargetOptions ?? fallbackPlayerProps.playerShotsOnTargetOptions,
+    playerStats: {
+      booked: match.playerStats?.booked ?? match.stats?.playerBooked ?? {},
+      shotsOnTarget: match.playerStats?.shotsOnTarget ?? match.stats?.playerShotsOnTarget ?? {},
     },
     shotsOnTarget: match.shotsOnTarget ?? fallbackProps.shotsOnTarget,
     shotsOnTargetDetail: match.shotsOnTargetDetail ?? fallbackProps.shotsOnTargetDetail,
@@ -274,6 +282,108 @@ function buildFallbackMatchProps(match) {
   };
 }
 
+const fallbackTeamPlayersByKey = new Map(
+  Object.entries(fallbackTeamPlayers).map(([team, players]) => [canonicalTeamName(team), players]),
+);
+
+function slugToken(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function fallbackPlayersForTeam(teamName) {
+  return fallbackTeamPlayersByKey.get(canonicalTeamName(teamName)) ?? [];
+}
+
+function buildFallbackPlayerProps(match) {
+  const origin = match.bookmaker || match.quotes?.[0]?.bookmaker || "GoonBet line";
+  const seed = stableHash(`${match.id}|${match.home}|${match.away}|players`);
+  const players = [
+    ...fallbackPlayersForTeam(match.home).map((player, index) => ({
+      ...player,
+      playerId: `${slugToken(match.home)}_${slugToken(player.name)}`,
+      side: "home",
+      team: match.home,
+      teamIndex: index,
+    })),
+    ...fallbackPlayersForTeam(match.away).map((player, index) => ({
+      ...player,
+      playerId: `${slugToken(match.away)}_${slugToken(player.name)}`,
+      side: "away",
+      team: match.away,
+      teamIndex: index,
+    })),
+  ];
+
+  const playerShotsOnTargetOptions = players.map((player, index) => {
+    const point = player.role === "attacker" ? (index % 2 === 0 ? 1.5 : 0.5) : 0.5;
+    const base =
+      player.role === "attacker" ? 1.66 : player.role === "midfielder" ? 2.02 : 2.55;
+    const price = roundOdds(base + ((seed + index) % 4) * 0.18);
+
+    return {
+      label: `${player.name} over ${point.toFixed(1)} shots on target`,
+      odds: price,
+      origin,
+      playerId: player.playerId,
+      playerName: player.name,
+      point,
+      selection: `${player.playerId}|SOT|${point.toFixed(1)}`,
+      team: player.team,
+    };
+  });
+
+  const playerBookedOptions = players.map((player, index) => {
+    const base =
+      player.role === "defender" ? 2.95 : player.role === "midfielder" ? 3.45 : 4.8;
+    const price = roundOdds(base + ((seed + index) % 4) * 0.28);
+
+    return {
+      label: `${player.name} to be booked`,
+      odds: price,
+      origin,
+      playerId: player.playerId,
+      playerName: player.name,
+      selection: `${player.playerId}|BOOKED`,
+      team: player.team,
+    };
+  });
+
+  return {
+    detail: "Fallback player props board. Add a live player-props feed to replace these lines.",
+    playerBookedOptions,
+    playerShotsOnTargetOptions,
+  };
+}
+
+function playerPropOptions(match, marketType) {
+  if (marketType === "player_shots_on_target") {
+    return match.playerShotsOnTargetOptions ?? [];
+  }
+
+  if (marketType === "player_booked") {
+    return match.playerBookedOptions ?? [];
+  }
+
+  return [];
+}
+
+function playerPropOption(match, marketType, selection) {
+  return playerPropOptions(match, marketType).find((option) => option.selection === selection) ?? null;
+}
+
+function selectionLine(match, marketType, selection) {
+  if (marketType === "player_shots_on_target") {
+    return playerPropOption(match, marketType, selection)?.point ?? null;
+  }
+
+  return marketConfig(match, marketType)?.line ?? null;
+}
+
 function normalizeUsername(rawValue) {
   return String(rawValue || "")
     .trim()
@@ -389,6 +499,14 @@ function betMarketLabel(bet) {
     return "Red card";
   }
 
+  if (bet.marketType === "player_shots_on_target") {
+    return `Player shots on target ${bet.marketLine?.toFixed(1) ?? ""}`.trim();
+  }
+
+  if (bet.marketType === "player_booked") {
+    return "Player to be booked";
+  }
+
   if (bet.marketType === "future_winner") {
     return "World Cup winner";
   }
@@ -485,6 +603,58 @@ function propStatTotal(match, marketType) {
   }
 
   return null;
+}
+
+function playerPropStatValue(match, marketType, selection) {
+  const playerId = String(selection || "").split("|")[0];
+  if (!playerId) {
+    return null;
+  }
+
+  if (marketType === "player_shots_on_target") {
+    return statNumber(match?.playerStats?.shotsOnTarget?.[playerId]);
+  }
+
+  if (marketType === "player_booked") {
+    const value = match?.playerStats?.booked?.[playerId];
+    if (value == null) {
+      return null;
+    }
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (["true", "yes", "booked", "1"].includes(normalized)) {
+        return 1;
+      }
+      if (["false", "no", "0", "clean"].includes(normalized)) {
+        return 0;
+      }
+    }
+    return value ? 1 : 0;
+  }
+
+  return null;
+}
+
+function settlementContextLabel(bet, settlement) {
+  if (settlement.future) {
+    return `Settled winner: ${futureResultLabel(settlement.future)}`;
+  }
+
+  if (settlement.reason === "MISSING_STAT") {
+    return "Stat result was unavailable from the current feed, so the stake was returned.";
+  }
+
+  if (bet.marketType === "player_shots_on_target") {
+    const total = playerPropStatValue(settlement.match, bet.marketType, bet.selection);
+    return Number.isFinite(total) ? `Player shots on target: ${total}` : `Final score: ${scorelineLabel(settlement.match)}`;
+  }
+
+  if (bet.marketType === "player_booked") {
+    const booked = playerPropStatValue(settlement.match, bet.marketType, bet.selection);
+    return booked == null ? `Final score: ${scorelineLabel(settlement.match)}` : `Player booked: ${booked > 0 ? "Yes" : "No"}`;
+  }
+
+  return `Final score: ${scorelineLabel(settlement.match)}`;
 }
 
 function evaluateBet(bet) {
@@ -615,6 +785,65 @@ function evaluateBet(bet) {
     }
 
     const won = bet.selection === "YES" ? total > 0 : total === 0;
+    const payout = won ? roundPayout(bet.stake * bet.odds) : 0;
+
+    return {
+      isSettled: true,
+      match,
+      net: won ? payout - bet.stake : -bet.stake,
+      payout,
+      phase,
+      result: won ? "WON" : "LOST",
+    };
+  }
+
+  if (bet.marketType === "player_shots_on_target") {
+    const total = playerPropStatValue(match, bet.marketType, bet.selection);
+    const line = Number(bet.marketLine);
+
+    if (!Number.isFinite(line) || !Number.isFinite(total)) {
+      return matchPhase(match) === "FINAL"
+        ? pushSettlement(match, phase, bet.stake, "MISSING_STAT")
+        : {
+            isSettled: false,
+            match,
+            net: 0,
+            payout: 0,
+            phase,
+            result: "OPEN",
+          };
+    }
+
+    const won = total > line;
+    const payout = won ? roundPayout(bet.stake * bet.odds) : 0;
+
+    return {
+      isSettled: true,
+      match,
+      net: won ? payout - bet.stake : -bet.stake,
+      payout,
+      phase,
+      result: won ? "WON" : "LOST",
+    };
+  }
+
+  if (bet.marketType === "player_booked") {
+    const booked = playerPropStatValue(match, bet.marketType, bet.selection);
+
+    if (!Number.isFinite(booked)) {
+      return matchPhase(match) === "FINAL"
+        ? pushSettlement(match, phase, bet.stake, "MISSING_STAT")
+        : {
+            isSettled: false,
+            match,
+            net: 0,
+            payout: 0,
+            phase,
+            result: "OPEN",
+          };
+    }
+
+    const won = booked > 0;
     const payout = won ? roundPayout(bet.stake * bet.odds) : 0;
 
     return {
@@ -845,11 +1074,7 @@ function buildPublicBoard() {
       }
 
       const settledAt = new Date(bet.kickoff).getTime() + 2 * 60 * 60 * 1000;
-      const settledDetail = bet.settlement.future
-        ? `${betContextLabel(bet)} settled | Winner: ${futureResultLabel(bet.settlement.future)}`
-        : bet.settlement.reason === "MISSING_STAT"
-          ? `${betContextLabel(bet)} settled | Stat feed unavailable, stake returned`
-        : `${betContextLabel(bet)} finished ${scorelineLabel(bet.settlement.match)}`;
+      const settledDetail = `${betContextLabel(bet)} settled | ${settlementContextLabel(bet, bet.settlement)}`;
 
       if (bet.settlement.result === "WON") {
         events.unshift({
@@ -1113,10 +1338,6 @@ function toggleMatchExpanded(matchId) {
   state.expandedMatches[matchId] = !isMatchExpanded(matchId);
 }
 
-function isLineMarketType(marketType) {
-  return marketType === "totals" || marketType === "shots_on_target" || marketType === "yellow_cards";
-}
-
 function marketConfig(match, marketType) {
   if (marketType === "match_result") {
     return {
@@ -1205,6 +1426,28 @@ function marketConfig(match, marketType) {
     };
   }
 
+  if (marketType === "player_shots_on_target") {
+    return {
+      badge: "Player shots on target",
+      detail: match.playerPropsDetail,
+      emptyCopy: "Player shots-on-target props are not loaded for this match yet.",
+      gridClass: "odds-grid player-prop-grid",
+      options: match.playerShotsOnTargetOptions ?? [],
+      prompt: "1. Choose one player line. 2. Enter a stake. 3. Press Place bet.",
+    };
+  }
+
+  if (marketType === "player_booked") {
+    return {
+      badge: "Player to be booked",
+      detail: match.playerPropsDetail,
+      emptyCopy: "Player booking props are not loaded for this match yet.",
+      gridClass: "odds-grid player-prop-grid",
+      options: match.playerBookedOptions ?? [],
+      prompt: "1. Choose one player. 2. Enter a stake. 3. Press Place bet.",
+    };
+  }
+
   return null;
 }
 
@@ -1214,7 +1457,8 @@ function selectionPrice(match, marketType, selection) {
   }
 
   const market = marketConfig(match, marketType);
-  return market?.odds?.[selection] ?? null;
+  const option = market?.options?.find((item) => item.selection === selection);
+  return option?.odds ?? market?.odds?.[selection] ?? null;
 }
 
 function selectionOrigin(match, marketType, selection) {
@@ -1223,7 +1467,8 @@ function selectionOrigin(match, marketType, selection) {
   }
 
   const market = marketConfig(match, marketType);
-  return market?.origins?.[selection] ?? match.bookmaker;
+  const option = market?.options?.find((item) => item.selection === selection);
+  return option?.origin ?? market?.origins?.[selection] ?? match.bookmaker;
 }
 
 function selectionDisabled(match, marketType, selection, existing) {
@@ -1286,7 +1531,7 @@ function selectionLabel(match, selection, marketType) {
     return futureOptionBySelection(match, selection)?.label ?? selection;
   }
 
-  return marketConfig(match, marketType)?.options.find((option) => option.selection === selection)?.label ?? selection;
+  return marketConfig(match, marketType)?.options?.find((option) => option.selection === selection)?.label ?? selection;
 }
 
 function renderFutureMarkets() {
@@ -1428,8 +1673,8 @@ function renderMatchMarketSection(match, marketType) {
       <div class="${escapeHtml(market.gridClass)}">
         ${market.options
           .map((option) => {
-            const origin = market.origins?.[option.selection];
-            const price = market.odds?.[option.selection];
+            const origin = option.origin ?? market.origins?.[option.selection];
+            const price = option.odds ?? market.odds?.[option.selection];
 
             return `
               <button
@@ -1508,6 +1753,8 @@ function renderMatches() {
       const phase = matchPhase(match);
       const phaseCopy =
         phase === "LIVE" ? "Live now" : phase === "LOCKED" ? "Started" : "Tap to open markets";
+      const hasPlayerProps =
+        playerPropOptions(match, "player_shots_on_target").length || playerPropOptions(match, "player_booked").length;
 
       return `
         <article class="match-card ${expanded ? "expanded" : ""}">
@@ -1528,11 +1775,21 @@ function renderMatches() {
             expanded
               ? `
                 <div class="match-drawer">
+                  <div class="match-section-label">Basic bets</div>
                   ${renderMatchMarketSection(match, "match_result")}
                   ${renderMatchMarketSection(match, "totals")}
                   ${renderMatchMarketSection(match, "shots_on_target")}
                   ${renderMatchMarketSection(match, "yellow_cards")}
                   ${renderMatchMarketSection(match, "red_cards")}
+                  ${
+                    hasPlayerProps
+                      ? `
+                        <div class="match-section-label">Player specific bets</div>
+                        ${renderMatchMarketSection(match, "player_shots_on_target")}
+                        ${renderMatchMarketSection(match, "player_booked")}
+                      `
+                      : ""
+                  }
                   ${quoteMarkup(match)}
                   <div class="small-note">One bet per market can be active on the same match.</div>
                 </div>
@@ -1618,7 +1875,7 @@ async function placeBet(match, selection, stake, marketType) {
     bookmaker: selectionOrigin(match, marketType, selection),
     home: match.home,
     kickoff: match.kickoff,
-    market_line: isLineMarketType(marketType) ? marketConfig(match, marketType)?.line ?? null : null,
+    market_line: selectionLine(match, marketType, selection),
     market_type: marketType,
     match_id: match.id,
     odds: Number(marketOdds),
@@ -1864,13 +2121,7 @@ function renderMyBets() {
               )}
             </strong>
           </div>
-          <div class="small-note">${
-            settlement.future
-              ? `Settled winner: ${escapeHtml(futureResultLabel(settlement.future))}`
-              : settlement.reason === "MISSING_STAT"
-                ? "Stat result was unavailable from the current feed, so the stake was returned."
-                : `Final score: ${escapeHtml(scorelineLabel(settlement.match))}`
-          }</div>
+          <div class="small-note">${escapeHtml(settlementContextLabel(bet, settlement))}</div>
         `
         : "";
 
