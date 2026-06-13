@@ -5,8 +5,8 @@ GoonBet is a simpler World Cup fake-money betting site:
 - public weekly match board
 - search by team, group, bookmaker, or week
 - real `1X2` coefficients when live provider keys are configured
-- live tournament-special coefficients for World Cup winner and top scorer when the outright feed is available
-- Supabase-backed bettor accounts with email-link sign-in
+- optional tournament-special coefficients for World Cup winner and top scorer when the outright feed is enabled
+- Supabase-backed bettor accounts with username-plus-password sign-in
 - one fake-money bet per user per match
 
 ## How it works
@@ -15,8 +15,31 @@ GoonBet is a simpler World Cup fake-money betting site:
 - Live fixtures come from `football-data.org`.
 - Live `1X2` coefficients come from `The Odds API`.
 - The Node server merges those feeds and serves the board at `/api/matches`.
-- Tournament specials are loaded from `The Odds API` outright markets and served at `/api/futures`.
+- Tournament specials can be loaded from `The Odds API` outright markets and served at `/api/futures`, but they are off by default in the low-request setup.
 - Supabase stores signed-in bettor profiles and fake-money bets.
+
+## Recommended free-only setup
+
+For a small private group, the safest low-cost setup is:
+
+- `football-data.org` for fixtures and results
+- `The Odds API` for match coefficients
+- slower server caching so your friends all hit the same cached response instead of burning API requests
+- tournament specials disabled unless you decide you really want them
+
+Recommended environment values:
+
+- `ODDS_API_BOOKMAKERS=pinnacle`
+- `ENABLE_FUTURES=false`
+- `MATCH_LOOKAHEAD_DAYS=7`
+- `MATCH_CACHE_TTL_SECONDS=10800`
+- `FUTURE_CACHE_TTL_SECONDS=43200`
+
+That means:
+
+- match data refreshes every 3 hours
+- long-term markets refresh every 12 hours if enabled
+- the board only looks one week ahead by default
 
 ## Local setup
 
@@ -31,6 +54,14 @@ Required for live match data:
 
 - `FOOTBALL_DATA_API_TOKEN`
 - `THE_ODDS_API_KEY`
+
+Recommended for a small friends-only pool:
+
+- `ODDS_API_BOOKMAKERS=pinnacle`
+- `ENABLE_FUTURES=false`
+- `MATCH_LOOKAHEAD_DAYS=7`
+- `MATCH_CACHE_TTL_SECONDS=10800`
+- `FUTURE_CACHE_TTL_SECONDS=43200`
 
 Optional if your outright markets use separate sport keys:
 
@@ -53,7 +84,8 @@ Then open `http://localhost:4173`.
 3. In `Auth -> URL Configuration`, add:
    - `http://localhost:4173`
    - your future public site URL, for example `https://goonbet.onrender.com`
-4. Keep email auth enabled so `signInWithOtp()` can send magic links.
+4. In `Auth -> Providers -> Email`, allow email/password sign-in.
+5. If you want instant username/password signup without email confirmation, turn off `Confirm email`.
 
 ## Public deployment
 
@@ -63,7 +95,7 @@ This project is set up to deploy cleanly as a Render web service.
 - The public site is served by `server.mjs`.
 - Browser-side Supabase config is exposed through `/app-config.js`.
 
-Once deployed, you share the Render URL or your custom domain with friends. Everyone can browse the board. Anyone who wants to bet signs in through the email link flow and then places bets from their own account.
+Once deployed, you share the Render URL or your custom domain with friends. Everyone can browse the board. Anyone who wants to bet creates a username and password, then places bets from their own account.
 
 ## Main files
 

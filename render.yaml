@@ -21,7 +21,9 @@ services:
       - key: ODDS_API_REGIONS
         value: eu
       - key: ODDS_API_BOOKMAKERS
-        value: pinnacle,betfair,bet365
+        value: pinnacle
+      - key: ENABLE_FUTURES
+        value: "false"
       - key: ODDS_API_OUTRIGHTS_SPORT_KEY
         sync: false
       - key: ODDS_API_WINNER_SPORT_KEY
@@ -35,6 +37,8 @@ services:
       - key: TOURNAMENT_SPECIALS_LOCK_TIME
         value: "2026-07-01T12:00:00Z"
       - key: MATCH_LOOKAHEAD_DAYS
-        value: "21"
-      - key: CACHE_TTL_SECONDS
-        value: "300"
+        value: "7"
+      - key: MATCH_CACHE_TTL_SECONDS
+        value: "10800"
+      - key: FUTURE_CACHE_TTL_SECONDS
+        value: "43200"

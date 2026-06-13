@@ -1,13 +1,14 @@
 export const simpleConfig = {
-  cacheTtlSeconds: 300,
+  cacheTtlSeconds: 10800,
   defaultStake: 50,
   fallbackOddsSourceLabel: "Demo odds fallback",
   fallbackFixtureSourceLabel: "Demo fixtures fallback",
+  futureCacheTtlSeconds: 43200,
   liveOddsSourceLabel: "The Odds API",
   liveFixtureSourceLabel: "football-data.org / Sportmonks",
   maxStake: 200,
   matchLookbackDays: 14,
-  matchLookaheadDays: 21,
+  matchLookaheadDays: 7,
   pendingNameStorageKey: "goonbet-pending-name",
   startingBankroll: 200,
   tagline:

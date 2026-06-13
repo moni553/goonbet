@@ -17,10 +17,16 @@ const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const runtimeEnv = loadRuntimeEnv();
 const port = Number(runtimeEnv.PORT || 4173);
 const host = runtimeEnv.HOST || "0.0.0.0";
-const cacheTtlMs = Number(runtimeEnv.CACHE_TTL_SECONDS || simpleConfig.cacheTtlSeconds) * 1000;
+const matchCacheTtlMs = Number(
+  runtimeEnv.MATCH_CACHE_TTL_SECONDS || runtimeEnv.CACHE_TTL_SECONDS || simpleConfig.cacheTtlSeconds,
+) * 1000;
+const futureCacheTtlMs = Number(
+  runtimeEnv.FUTURE_CACHE_TTL_SECONDS || simpleConfig.futureCacheTtlSeconds || runtimeEnv.CACHE_TTL_SECONDS || simpleConfig.cacheTtlSeconds,
+) * 1000;
 const matchLookbackDays = Number(runtimeEnv.MATCH_LOOKBACK_DAYS || simpleConfig.matchLookbackDays);
 const matchLookaheadDays = Number(runtimeEnv.MATCH_LOOKAHEAD_DAYS || simpleConfig.matchLookaheadDays);
 const tournamentSpecialsLockTime = runtimeEnv.TOURNAMENT_SPECIALS_LOCK_TIME || demoFutures[0]?.kickoff || "2026-07-01T12:00:00Z";
+const futuresEnabled = String(runtimeEnv.ENABLE_FUTURES ?? "true").toLowerCase() !== "false";
 
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
@@ -43,6 +49,7 @@ const futureCache = {
 };
 
 const publicAppConfig = {
+  futuresEnabled,
   siteName: "GoonBet",
   supabasePublishableKey: runtimeEnv.SUPABASE_PUBLISHABLE_KEY || runtimeEnv.SUPABASE_ANON_KEY || "",
   supabaseUrl: runtimeEnv.SUPABASE_URL || "",
@@ -648,6 +655,18 @@ async function buildMatchPayload() {
 }
 
 async function buildFuturePayload() {
+  if (!futuresEnabled) {
+    return {
+      markets: [],
+      meta: {
+        lastUpdated: new Date().toISOString(),
+        notes: ["Tournament specials are turned off in this low-request setup."],
+        oddsProvider: simpleConfig.fallbackOddsSourceLabel,
+        usingDemoFallback: false,
+      },
+    };
+  }
+
   const futureFeed = await loadFutureFeed();
   const notes = [...futureFeed.notes];
 
@@ -681,7 +700,7 @@ async function getCachedMatchPayload(forceRefresh = false) {
   matchCache.pending = buildMatchPayload()
     .then((payload) => {
       matchCache.value = payload;
-      matchCache.expiresAt = Date.now() + cacheTtlMs;
+      matchCache.expiresAt = Date.now() + matchCacheTtlMs;
       matchCache.pending = null;
       return payload;
     })
@@ -707,7 +726,7 @@ async function getCachedFuturePayload(forceRefresh = false) {
   futureCache.pending = buildFuturePayload()
     .then((payload) => {
       futureCache.value = payload;
-      futureCache.expiresAt = Date.now() + cacheTtlMs;
+      futureCache.expiresAt = Date.now() + futureCacheTtlMs;
       futureCache.pending = null;
       return payload;
     })

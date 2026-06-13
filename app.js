@@ -209,6 +209,10 @@ function hasSupabaseConfig() {
   return Boolean(config.supabaseUrl && config.supabasePublishableKey);
 }
 
+function futuresEnabled() {
+  return readPublicConfig().futuresEnabled !== false;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -1178,12 +1182,15 @@ function renderBoardTabs() {
       title: "Weekly matches",
       copy: `${boardMatches().length} visible matches`,
     },
-    {
+  ];
+
+  if (futuresEnabled()) {
+    tabs.push({
       id: "futures",
       title: "Tournament specials",
       copy: `${state.futures.length} long-term bets`,
-    },
-  ];
+    });
+  }
 
   container.innerHTML = tabs
     .map(
@@ -1206,8 +1213,12 @@ function renderBoardTabs() {
 }
 
 function renderBoardPanels() {
+  if (!futuresEnabled() && state.selectedBoardTab === "futures") {
+    state.selectedBoardTab = "matches";
+  }
+
   document.getElementById("matches-panel").classList.toggle("hidden", state.selectedBoardTab !== "matches");
-  document.getElementById("future-panel").classList.toggle("hidden", state.selectedBoardTab !== "futures");
+  document.getElementById("future-panel").classList.toggle("hidden", !futuresEnabled() || state.selectedBoardTab !== "futures");
 }
 
 function isMatchExpanded(matchId) {
@@ -2116,6 +2127,12 @@ async function loadMatches() {
 }
 
 async function loadFutures() {
+  if (!futuresEnabled()) {
+    state.futures = [];
+    recalculatePublicBoard();
+    return;
+  }
+
   let result;
 
   try {
@@ -2390,7 +2407,7 @@ function renderApp() {
 
 async function start() {
   attachEvents();
-  await Promise.all([loadFutures(), loadMatches()]);
+  await Promise.all([loadMatches(), futuresEnabled() ? loadFutures() : Promise.resolve()]);
   await setupSupabase();
   renderApp();
 }
