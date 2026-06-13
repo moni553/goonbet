@@ -218,12 +218,39 @@ function roundPayout(value) {
   return Math.round(Number(value) || 0);
 }
 
+function canonicalTeamName(name) {
+  return String(name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\b(fc|cf|ac|sc|club|football)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function kickoffDistanceMs(left, right) {
+  return Math.abs(new Date(left).getTime() - new Date(right).getTime());
+}
+
 function isFutureMarketType(marketType) {
   return marketType === "future_winner" || marketType === "future_top_scorer";
 }
 
-function matchById(matchId) {
-  return state.matches.find((match) => match.id === matchId) ?? null;
+function matchById(matchId, fallbackBet = null) {
+  const directMatch = state.matches.find((match) => match.id === matchId) ?? null;
+  if (directMatch || !fallbackBet) {
+    return directMatch;
+  }
+
+  return (
+    state.matches.find((match) => {
+      const sameHome = canonicalTeamName(match.home) === canonicalTeamName(fallbackBet.home);
+      const sameAway = canonicalTeamName(match.away) === canonicalTeamName(fallbackBet.away);
+      const closeKickoff = kickoffDistanceMs(match.kickoff, fallbackBet.kickoff) <= 36 * 60 * 60 * 1000;
+      return sameHome && sameAway && closeKickoff;
+    }) ?? null
+  );
 }
 
 function futureById(matchId) {
@@ -348,7 +375,7 @@ function evaluateBet(bet) {
     };
   }
 
-  const match = matchById(bet.matchId);
+  const match = matchById(bet.matchId, bet);
   const phase = match ? matchPhase(match) : new Date(bet.kickoff).getTime() <= Date.now() ? "LOCKED" : "SCHEDULED";
 
   if (!match || !matchHasFinalScore(match)) {
