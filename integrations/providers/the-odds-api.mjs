@@ -112,6 +112,29 @@ function uniqueList(items) {
   return Array.from(new Set(items.filter(Boolean)));
 }
 
+function futureContextText(bucket) {
+  return normalizeLookupText(
+    [
+      bucket.eventTitle,
+      bucket.eventName,
+      bucket.eventDescription,
+      bucket.marketTitle,
+      bucket.marketName,
+      bucket.marketDescription,
+      bucket.marketKey,
+      bucket.sportKey,
+      bucket.sportTitle,
+    ].join(" "),
+  );
+}
+
+function isWorldCupFutureBucket(bucket) {
+  const text = futureContextText(bucket);
+  const looksLikeWorldCup = /fifa world cup|world cup/.test(text);
+  const looksLikeFinals = !/(qualifiers|qualifier|women|womens|friendly|club world cup)/.test(text);
+  return looksLikeWorldCup && looksLikeFinals;
+}
+
 function optionLooksLikeTeam(label) {
   const normalized = normalizeLookupText(label);
   return Boolean(normalized) && COMMON_NATIONAL_TEAMS.has(normalized);
@@ -131,20 +154,14 @@ function inferFutureMarketType(bucket, forcedMarketType = null) {
     return forcedMarketType;
   }
 
+  if (!isWorldCupFutureBucket(bucket)) {
+    return null;
+  }
+
   const labels = bucket.options.map((option) => option.label);
   const teamLikeCount = labels.filter(optionLooksLikeTeam).length;
   const playerLikeCount = labels.filter(optionLooksLikePlayer).length;
-  const text = normalizeLookupText(
-    [
-      bucket.eventTitle,
-      bucket.eventName,
-      bucket.eventDescription,
-      bucket.marketTitle,
-      bucket.marketName,
-      bucket.marketDescription,
-      bucket.marketKey,
-    ].join(" "),
-  );
+  const text = futureContextText(bucket);
 
   if (/(top scorer|top goalscorer|golden boot|most goals|top goal scorer)/.test(text)) {
     return "future_top_scorer";
@@ -189,6 +206,8 @@ function createOutrightBucket(rawEvent, market) {
     marketName: market?.name ?? "",
     marketTitle: market?.title ?? "",
     optionMap: new Map(),
+    sportKey: rawEvent?.sport_key ?? "",
+    sportTitle: rawEvent?.sport_title ?? "",
   };
 }
 
@@ -261,6 +280,10 @@ function summarizeFutureOdds(marketType, options, bookmakerTitles) {
 }
 
 function buildFutureMarket(bucket, marketType, defaultKickoff) {
+  if (!isWorldCupFutureBucket(bucket)) {
+    return null;
+  }
+
   const bookmakerTitles = uniqueList(bucket.bookmakerTitles);
   const options = bucket.options ?? [];
   if (!options.length) {

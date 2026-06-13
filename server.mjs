@@ -137,9 +137,17 @@ function futureKeyCandidates(marketType, baseSportKey) {
 }
 
 function futureDiscoveryScore(sport, marketType, baseSportKey) {
+  const sportKey = String(sport?.key || "");
   const text = normalizeLookupText([sport?.key, sport?.title, sport?.description].join(" "));
   const normalizedBase = normalizeLookupText(baseSportKey).replace(/\s+/g, "_");
+  const isWorldCupFamily =
+    sportKey === baseSportKey ||
+    (sportKey.startsWith(`${baseSportKey}_`) && !/_qualifiers_|_women|_womens|_friendly|_club_/.test(sportKey));
   let score = 0;
+
+  if (!isWorldCupFamily) {
+    return 0;
+  }
 
   if (sport?.active) {
     score += 1;
@@ -149,7 +157,7 @@ function futureDiscoveryScore(sport, marketType, baseSportKey) {
     score += 2;
   }
 
-  if (String(sport?.key || "").includes(baseSportKey) || text.includes(normalizedBase.replaceAll("_", " "))) {
+  if (sportKey.includes(baseSportKey) || text.includes(normalizedBase.replaceAll("_", " "))) {
     score += 4;
   }
 
