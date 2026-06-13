@@ -491,9 +491,13 @@ function bankrollLeft() {
   return contestValueForAccount() - totalStakeForAccount();
 }
 
+function boardMatches() {
+  return state.matches.filter((match) => matchPhase(match) !== "FINAL");
+}
+
 function availableWeeks() {
   const unique = new Map();
-  state.matches.forEach((match) => {
+  boardMatches().forEach((match) => {
     unique.set(match.weekId, {
       id: match.weekId,
       label: match.weekLabel,
@@ -508,7 +512,7 @@ function availableWeeks() {
 
 function filteredMatches() {
   const query = state.search.trim().toLowerCase();
-  return state.matches.filter((match) => {
+  return boardMatches().filter((match) => {
     const weekMatch = state.selectedWeek === "all" || match.weekId === state.selectedWeek;
     if (!weekMatch) {
       return false;
@@ -856,7 +860,9 @@ function renderAccount() {
 
 function renderWeeks() {
   const counts = new Map();
-  state.matches.forEach((match) => {
+  const matches = boardMatches();
+
+  matches.forEach((match) => {
     counts.set(match.weekId, (counts.get(match.weekId) ?? 0) + 1);
   });
 
@@ -865,7 +871,7 @@ function renderWeeks() {
       (week) => `
         <button class="week-chip ${state.selectedWeek === week.id ? "active" : ""}" data-week="${escapeHtml(week.id)}" type="button">
           <strong>${escapeHtml(week.label)}</strong>
-          <span>${week.id === "all" ? state.matches.length : counts.get(week.id) ?? 0} matches</span>
+          <span>${week.id === "all" ? matches.length : counts.get(week.id) ?? 0} matches</span>
         </button>
       `,
     )
@@ -886,7 +892,7 @@ function renderBoardTabs() {
     {
       id: "matches",
       title: "Weekly matches",
-      copy: `${state.matches.length} match bets`,
+      copy: `${boardMatches().length} visible matches`,
     },
     {
       id: "futures",
@@ -1156,7 +1162,7 @@ function renderMatches() {
   const matches = filteredMatches();
 
   if (!matches.length) {
-    matchList.innerHTML = `<div class="empty-state">No matches found for that search and week filter.</div>`;
+    matchList.innerHTML = `<div class="empty-state">No upcoming or live matches found for that search and week filter.</div>`;
     return;
   }
 
