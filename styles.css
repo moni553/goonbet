@@ -292,6 +292,29 @@ input {
 .match-card {
   display: grid;
   gap: 0.85rem;
+  padding: 0.9rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(23, 32, 24, 0.08);
+  background: var(--paper-strong);
+}
+
+.match-card.expanded {
+  border-color: rgba(30, 112, 72, 0.18);
+  box-shadow: 0 10px 24px rgba(27, 33, 24, 0.05);
+}
+
+.match-summary-button {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.match-drawer {
+  display: grid;
+  gap: 0.85rem;
 }
 
 .market-section {
@@ -360,13 +383,27 @@ input {
 }
 
 .match-top {
+  display: grid;
   grid-template-columns: 1fr auto;
   align-items: start;
+  gap: 0.85rem;
 }
 
 .match-top h3 {
   margin: 0;
   font-size: 1.22rem;
+}
+
+.match-summary-side {
+  display: grid;
+  justify-items: end;
+  gap: 0.45rem;
+}
+
+.match-expand-copy {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
 }
 
 .leaderboard-shell,
@@ -641,7 +678,8 @@ input {
   .section-head,
   .stake-bar,
   .button-row,
-  .bet-action-bar {
+  .bet-action-bar,
+  .match-top {
     grid-template-columns: 1fr;
   }
 
@@ -652,5 +690,9 @@ input {
   .totals-grid,
   .future-options {
     grid-template-columns: 1fr;
+  }
+
+  .match-summary-side {
+    justify-items: start;
   }
 }
