@@ -4,6 +4,23 @@ function buildUrl(path) {
   return `${baseUrl}${path}`;
 }
 
+function readScoreValue(scoreBlock, side) {
+  if (!scoreBlock) {
+    return null;
+  }
+
+  if (Number.isFinite(scoreBlock[side])) {
+    return Number(scoreBlock[side]);
+  }
+
+  const footballDataSide = side === "home" ? "homeTeam" : "awayTeam";
+  if (Number.isFinite(scoreBlock[footballDataSide])) {
+    return Number(scoreBlock[footballDataSide]);
+  }
+
+  return null;
+}
+
 export function buildFootballDataCompetitionFeed({
   competitionCode = "WC",
   dateFrom,
@@ -41,13 +58,16 @@ export async function fetchFootballDataJson(url, apiToken) {
 }
 
 export function normalizeFootballDataMatch(rawMatch) {
+  const fullTime = rawMatch.score?.fullTime;
+  const regularTime = rawMatch.score?.regularTime;
+
   return {
-    awayScore: rawMatch.score?.fullTime?.away ?? null,
+    awayScore: readScoreValue(fullTime, "away") ?? readScoreValue(regularTime, "away"),
     awayTeam: rawMatch.awayTeam?.name ?? "Away team",
     competition: rawMatch.competition?.name ?? "Competition",
     fixtureSource: "football-data.org",
     group: rawMatch.group ?? null,
-    homeScore: rawMatch.score?.fullTime?.home ?? null,
+    homeScore: readScoreValue(fullTime, "home") ?? readScoreValue(regularTime, "home"),
     homeTeam: rawMatch.homeTeam?.name ?? "Home team",
     kickoff: rawMatch.utcDate,
     provider: "football-data",
