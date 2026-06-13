@@ -13,6 +13,7 @@ const LIVE_MATCH_STATUSES = new Set([
   "PENALTY_SHOOTOUT",
   "SUSPENDED",
 ]);
+const MAX_ACTIVE_BETS_PER_MARKET = 2;
 
 const state = {
   account: null,
@@ -827,8 +828,21 @@ function filteredMatches() {
   });
 }
 
-function findExistingBet(matchId, marketType = "match_result") {
-  return state.bets.find((bet) => bet.matchId === matchId && bet.marketType === marketType);
+function activeBetsForMarket(matchId, marketType = "match_result") {
+  return state.bets.filter((bet) => bet.matchId === matchId && bet.marketType === marketType);
+}
+
+function hasReachedBetLimit(matchId, marketType = "match_result") {
+  return activeBetsForMarket(matchId, marketType).length >= MAX_ACTIVE_BETS_PER_MARKET;
+}
+
+function activeBetSummary(matchId, marketType = "match_result") {
+  const bets = activeBetsForMarket(matchId, marketType);
+  if (!bets.length) {
+    return "";
+  }
+
+  return bets.map((bet) => `${bet.selectionLabel} at ${bet.odds.toFixed(2)}`).join(" | ");
 }
 
 function draftKey(matchId, marketType) {
@@ -1090,7 +1104,7 @@ function renderAccount() {
   if (!state.account) {
     card.innerHTML = `
       <div class="small-note">
-        Guests can browse every weekly match. Bettors create a username and password, then place one fake-money bet per market.
+        Guests can browse every weekly match. Bettors create a username and password, then place up to two fake-money bets per market.
       </div>
     `;
     return;
@@ -1362,20 +1376,20 @@ function selectionOrigin(match, marketType, selection) {
   return option?.origin ?? market?.origins?.[selection] ?? match.bookmaker;
 }
 
-function selectionDisabled(match, marketType, selection, existing) {
-  return !state.account || marketLocked(match) || Boolean(existing) || !selectionPrice(match, marketType, selection);
+function selectionDisabled(match, marketType, selection, limitReached) {
+  return !state.account || marketLocked(match) || Boolean(limitReached) || !selectionPrice(match, marketType, selection);
 }
 
 function draftStakeNumber(matchId, marketType) {
   return Number(getBetDraft(matchId, marketType).stake || 0);
 }
 
-function canPlaceDraft(match, marketType, existing) {
+function canPlaceDraft(match, marketType, limitReached) {
   const draft = getBetDraft(match.id, marketType);
   return Boolean(
     state.account &&
       !marketLocked(match) &&
-      !existing &&
+      !limitReached &&
       draft.selection &&
       selectionPrice(match, marketType, draft.selection),
   );
@@ -1435,7 +1449,8 @@ function renderFutureMarkets() {
 
   container.innerHTML = state.futures
     .map((future) => {
-      const existingBet = findExistingBet(future.id, future.marketType);
+      const existingBets = activeBetsForMarket(future.id, future.marketType);
+      const limitReached = existingBets.length >= MAX_ACTIVE_BETS_PER_MARKET;
       const draft = getBetDraft(future.id, future.marketType);
       const hasCoefficients = future.options.length > 0;
 
@@ -1468,7 +1483,7 @@ function renderFutureMarkets() {
                             data-match-id="${escapeHtml(future.id)}"
                             data-market-type="${escapeHtml(future.marketType)}"
                             data-selection="${escapeHtml(option.selection)}"
-                            ${selectionDisabled(future, future.marketType, option.selection, existingBet) ? "disabled" : ""}
+                            ${selectionDisabled(future, future.marketType, option.selection, limitReached) ? "disabled" : ""}
                           >
                             <strong>${escapeHtml(option.label)}</strong>
                             <span>${option.odds.toFixed(2)}</span>
@@ -1498,7 +1513,7 @@ function renderFutureMarkets() {
                       data-future-place="true"
                       data-match-id="${escapeHtml(future.id)}"
                       data-market-type="${escapeHtml(future.marketType)}"
-                      ${canPlaceDraft(future, future.marketType, existingBet) ? "" : "disabled"}
+                      ${canPlaceDraft(future, future.marketType, limitReached) ? "" : "disabled"}
                     >
                       Place bet
                     </button>
@@ -1508,8 +1523,10 @@ function renderFutureMarkets() {
             }
             <div class="small-note">
               ${
-                existingBet
-                  ? `Already bet: ${escapeHtml(existingBet.selectionLabel)} at ${existingBet.odds.toFixed(2)}`
+                existingBets.length >= MAX_ACTIVE_BETS_PER_MARKET
+                  ? `Active bets ${existingBets.length}/${MAX_ACTIVE_BETS_PER_MARKET}: ${escapeHtml(activeBetSummary(future.id, future.marketType))}`
+                : existingBets.length
+                  ? `Active bets ${existingBets.length}/${MAX_ACTIVE_BETS_PER_MARKET}: ${escapeHtml(activeBetSummary(future.id, future.marketType))}. You can still place one more.`
                 : !state.account
                     ? "Log in first to place a long-term bet."
                     : marketLocked(future)
@@ -1561,7 +1578,8 @@ function renderFutureMarkets() {
 
 function renderMatchMarketSection(match, marketType) {
   const market = marketConfig(match, marketType);
-  const existingBet = findExistingBet(match.id, marketType);
+  const existingBets = activeBetsForMarket(match.id, marketType);
+  const limitReached = existingBets.length >= MAX_ACTIVE_BETS_PER_MARKET;
   const draft = getBetDraft(match.id, marketType);
   const availableOptions = market.options.filter((option) => selectionPrice(match, marketType, option.selection));
   const hasCoefficients = availableOptions.length > 0;
@@ -1589,7 +1607,7 @@ function renderMatchMarketSection(match, marketType) {
                       data-match-id="${escapeHtml(match.id)}"
                       data-market-type="${escapeHtml(marketType)}"
                       data-selection-value="${escapeHtml(option.selection)}"
-                      ${selectionDisabled(match, marketType, option.selection, existingBet) ? "disabled" : ""}
+                      ${selectionDisabled(match, marketType, option.selection, limitReached) ? "disabled" : ""}
                     >
                       <strong>${escapeHtml(option.label)}</strong>
                       <span>${price ? price.toFixed(2) : "No odds"}</span>
@@ -1619,7 +1637,7 @@ function renderMatchMarketSection(match, marketType) {
                 data-place-bet="true"
                 data-match-id="${escapeHtml(match.id)}"
                 data-market-type="${escapeHtml(marketType)}"
-                ${canPlaceDraft(match, marketType, existingBet) ? "" : "disabled"}
+                ${canPlaceDraft(match, marketType, limitReached) ? "" : "disabled"}
               >
                 Place bet
               </button>
@@ -1629,8 +1647,10 @@ function renderMatchMarketSection(match, marketType) {
       }
       <div class="small-note">
         ${
-          existingBet
-            ? `Already bet: ${escapeHtml(existingBet.selectionLabel)} at ${existingBet.odds.toFixed(2)}`
+          existingBets.length >= MAX_ACTIVE_BETS_PER_MARKET
+            ? `Active bets ${existingBets.length}/${MAX_ACTIVE_BETS_PER_MARKET}: ${escapeHtml(activeBetSummary(match.id, marketType))}`
+          : existingBets.length
+            ? `Active bets ${existingBets.length}/${MAX_ACTIVE_BETS_PER_MARKET}: ${escapeHtml(activeBetSummary(match.id, marketType))}. You can still place one more.`
           : !state.account
               ? "Log in first to place a bet."
               : marketLocked(match)
@@ -1691,7 +1711,7 @@ function renderMatches() {
                   ${renderMatchMarketSection(match, "player_shots_on_target")}
                   ${renderMatchMarketSection(match, "player_booked")}
                   ${quoteMarkup(match)}
-                  <div class="small-note">One bet per market can be active on the same match.</div>
+                  <div class="small-note">Up to ${MAX_ACTIVE_BETS_PER_MARKET} bets per market can be active on the same match.</div>
                 </div>
               `
               : ""
@@ -1759,8 +1779,8 @@ async function placeBet(match, selection, stake, marketType) {
     return;
   }
 
-  if (findExistingBet(match.id, marketType)) {
-    alert("You already placed a bet on that market for this match.");
+  if (hasReachedBetLimit(match.id, marketType)) {
+    alert(`You can only have ${MAX_ACTIVE_BETS_PER_MARKET} active bets on that market for this match.`);
     return;
   }
 
@@ -1789,8 +1809,8 @@ async function placeBet(match, selection, stake, marketType) {
   const { data, error } = await state.supabase.from("bets").insert(payload).select("*").single();
 
   if (error) {
-    if (error.code === "23505") {
-      alert("You already placed a bet on that market for this match.");
+    if (error.code === "23505" || /2 active bets|bet limit|maximum active bets/i.test(error.message)) {
+      alert(`You can only have ${MAX_ACTIVE_BETS_PER_MARKET} active bets on that market for this match.`);
       return;
     }
 

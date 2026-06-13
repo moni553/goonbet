@@ -52,7 +52,7 @@ alter table public.bets add constraint bets_stake_check check (stake >= 10 and s
 
 alter table public.bets drop constraint if exists bets_user_id_match_id_key;
 drop index if exists public.bets_one_market_per_match_idx;
-create unique index if not exists bets_one_market_per_match_idx on public.bets (user_id, match_id, market_type);
+create index if not exists bets_user_match_market_idx on public.bets (user_id, match_id, market_type);
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -63,6 +63,35 @@ begin
   return new;
 end;
 $$;
+
+create or replace function public.enforce_market_bet_limit()
+returns trigger
+language plpgsql
+as $$
+declare
+  existing_count integer;
+begin
+  select count(*)
+    into existing_count
+  from public.bets
+  where public.bets.user_id = new.user_id
+    and public.bets.match_id = new.match_id
+    and public.bets.market_type = new.market_type
+    and (tg_op <> 'UPDATE' or public.bets.id <> new.id);
+
+  if existing_count >= 2 then
+    raise exception 'You can only have 2 active bets on that market for this match.';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_market_bet_limit on public.bets;
+create trigger enforce_market_bet_limit
+before insert or update on public.bets
+for each row
+execute procedure public.enforce_market_bet_limit();
 
 drop trigger if exists set_profiles_updated_at on public.profiles;
 create trigger set_profiles_updated_at
