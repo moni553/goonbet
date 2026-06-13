@@ -67,7 +67,7 @@ function loadRuntimeEnv() {
 }
 
 function canonicalTeamName(name) {
-  return String(name || "")
+  const normalized = String(name || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -75,6 +75,16 @@ function canonicalTeamName(name) {
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+  const aliases = new Map([
+    ["czech republic", "czechia"],
+    ["ir iran", "iran"],
+    ["korea republic", "south korea"],
+    ["turkiye", "turkey"],
+    ["usa", "united states"],
+  ]);
+
+  return aliases.get(normalized) ?? normalized;
 }
 
 function startOfWeekUtc(input) {
