@@ -559,6 +559,15 @@ function demoMatchPayload(notes) {
     const { weekId, weekLabel } = weekInfo(match.kickoff);
     return {
       ...match,
+      bookmaker: "No bookmaker yet",
+      bookmakerCount: 0,
+      odds: { HOME: null, DRAW: null, AWAY: null },
+      oddsDetail: "No coefficients available for this match right now.",
+      oddsOrigins: { HOME: null, DRAW: null, AWAY: null },
+      quotes: [],
+      totals: { OVER: null, UNDER: null, point: null },
+      totalsDetail: "No coefficients available for goals over/under on this match yet.",
+      totalsOrigins: { OVER: null, UNDER: null },
       score: {
         home: null,
         away: null,
@@ -583,7 +592,13 @@ function demoMatchPayload(notes) {
 
 function demoFuturePayload(notes) {
   return {
-    markets: demoFutures,
+    markets: demoFutures.map((market) => ({
+      ...market,
+      bookmaker: "No bookmaker yet",
+      bookmakerCount: 0,
+      oddsDetail: "No coefficients available for this long-term market right now.",
+      options: [],
+    })),
     meta: {
       lastUpdated: new Date().toISOString(),
       notes,

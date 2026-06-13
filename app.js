@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
-import { demoFutures, demoMatches, fallbackTeamPlayers, simpleConfig } from "./data/simple-app-data.js";
+import { demoFutures, demoMatches, simpleConfig } from "./data/simple-app-data.js";
 
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9_-]{2,23}$/;
 const USERNAME_EMAIL_DOMAIN = "players.goonbet.app";
@@ -54,7 +54,20 @@ function defaultMeta() {
 
 function defaultMatchPayload(note) {
   return {
-    matches: demoMatches.map(normalizeMatch),
+    matches: demoMatches.map((match) =>
+      normalizeMatch({
+        ...match,
+        bookmaker: "No bookmaker yet",
+        bookmakerCount: 0,
+        odds: { HOME: null, DRAW: null, AWAY: null },
+        oddsDetail: "No coefficients available for this match right now.",
+        oddsOrigins: { HOME: null, DRAW: null, AWAY: null },
+        quotes: [],
+        totals: { OVER: null, UNDER: null, point: null },
+        totalsDetail: "No coefficients available for goals over/under on this match yet.",
+        totalsOrigins: { OVER: null, UNDER: null },
+      }),
+    ),
     meta: {
       ...defaultMeta(),
       lastUpdated: new Date().toISOString(),
@@ -65,7 +78,15 @@ function defaultMatchPayload(note) {
 
 function defaultFuturePayload(note) {
   return {
-    markets: demoFutures.map(normalizeFutureMarket),
+    markets: demoFutures.map((market) =>
+      normalizeFutureMarket({
+        ...market,
+        bookmaker: "No bookmaker yet",
+        bookmakerCount: 0,
+        oddsDetail: "No coefficients available for this long-term market right now.",
+        options: [],
+      }),
+    ),
     meta: {
       lastUpdated: new Date().toISOString(),
       notes: note ? [note] : [],
@@ -76,9 +97,6 @@ function defaultFuturePayload(note) {
 }
 
 function normalizeMatch(match) {
-  const fallbackProps = buildFallbackMatchProps(match);
-  const fallbackPlayerProps = buildFallbackPlayerProps(match);
-
   return {
     bookmaker: match.bookmaker ?? "No bookmaker yet",
     bookmakerCount: match.bookmakerCount ?? 0,
@@ -97,16 +115,16 @@ function normalizeMatch(match) {
       home: Number.isFinite(match.score?.home) ? Number(match.score.home) : null,
       away: Number.isFinite(match.score?.away) ? Number(match.score.away) : null,
     },
-    playerBookedOptions: match.playerBookedOptions ?? fallbackPlayerProps.playerBookedOptions,
-    playerPropsDetail: match.playerPropsDetail || fallbackPlayerProps.detail,
-    playerShotsOnTargetOptions: match.playerShotsOnTargetOptions ?? fallbackPlayerProps.playerShotsOnTargetOptions,
+    playerBookedOptions: match.playerBookedOptions ?? [],
+    playerPropsDetail: match.playerPropsDetail || "No coefficients available for player-specific markets on this match yet.",
+    playerShotsOnTargetOptions: match.playerShotsOnTargetOptions ?? [],
     playerStats: {
       booked: match.playerStats?.booked ?? match.stats?.playerBooked ?? {},
       shotsOnTarget: match.playerStats?.shotsOnTarget ?? match.stats?.playerShotsOnTarget ?? {},
     },
-    shotsOnTarget: match.shotsOnTarget ?? fallbackProps.shotsOnTarget,
-    shotsOnTargetDetail: match.shotsOnTargetDetail ?? fallbackProps.shotsOnTargetDetail,
-    shotsOnTargetOrigins: match.shotsOnTargetOrigins ?? fallbackProps.shotsOnTargetOrigins,
+    shotsOnTarget: match.shotsOnTarget ?? { OVER: null, UNDER: null, point: null },
+    shotsOnTargetDetail: match.shotsOnTargetDetail ?? "No coefficients available for shots on target on this match yet.",
+    shotsOnTargetOrigins: match.shotsOnTargetOrigins ?? { OVER: null, UNDER: null },
     status: match.status ?? "SCHEDULED",
     stats: {
       redCardsTotal: statNumber(match.stats?.redCardsTotal),
@@ -118,12 +136,12 @@ function normalizeMatch(match) {
     totalsOrigins: match.totalsOrigins ?? { OVER: null, UNDER: null },
     weekId: match.weekId ?? "all",
     weekLabel: match.weekLabel ?? "Current week",
-    yellowCards: match.yellowCards ?? fallbackProps.yellowCards,
-    yellowCardsDetail: match.yellowCardsDetail ?? fallbackProps.yellowCardsDetail,
-    yellowCardsOrigins: match.yellowCardsOrigins ?? fallbackProps.yellowCardsOrigins,
-    redCards: match.redCards ?? fallbackProps.redCards,
-    redCardsDetail: match.redCardsDetail ?? fallbackProps.redCardsDetail,
-    redCardsOrigins: match.redCardsOrigins ?? fallbackProps.redCardsOrigins,
+    yellowCards: match.yellowCards ?? { OVER: null, UNDER: null, point: null },
+    yellowCardsDetail: match.yellowCardsDetail ?? "No coefficients available for yellow cards on this match yet.",
+    yellowCardsOrigins: match.yellowCardsOrigins ?? { OVER: null, UNDER: null },
+    redCards: match.redCards ?? { NO: null, YES: null },
+    redCardsDetail: match.redCardsDetail ?? "No coefficients available for red cards on this match yet.",
+    redCardsOrigins: match.redCardsOrigins ?? { NO: null, YES: null },
   };
 }
 
@@ -218,146 +236,8 @@ function formatKickoff(value) {
   }).format(new Date(value));
 }
 
-function roundOdds(value) {
-  return Number(value.toFixed(2));
-}
-
-function stableHash(value) {
-  let hash = 0;
-
-  for (const character of String(value || "")) {
-    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  }
-
-  return hash;
-}
-
 function statNumber(value) {
   return Number.isFinite(Number(value)) ? Number(value) : null;
-}
-
-function buildFallbackMatchProps(match) {
-  const seed = stableHash(`${match.id}|${match.home}|${match.away}`);
-  const favoritePrice = Math.min(match.odds?.HOME ?? 2.2, match.odds?.AWAY ?? 2.2);
-  const origin = match.bookmaker || match.quotes?.[0]?.bookmaker || "GoonBet line";
-  const shotsPoint = favoritePrice <= 1.85 ? 10.5 + (seed % 2) : 8.5 + (seed % 3);
-  const yellowPoint = 3.5 + (seed % 3);
-  const shotsOver = roundOdds(1.8 + (seed % 3) * 0.08);
-  const shotsUnder = roundOdds(1.86 + ((seed >> 2) % 3) * 0.07);
-  const yellowOver = roundOdds(1.84 + ((seed >> 1) % 3) * 0.09);
-  const yellowUnder = roundOdds(1.82 + ((seed >> 3) % 3) * 0.08);
-  const redYes = roundOdds(3.0 + (seed % 3) * 0.22);
-  const redNo = roundOdds(1.28 + ((seed >> 1) % 3) * 0.08);
-
-  return {
-    redCards: {
-      NO: redNo,
-      YES: redYes,
-    },
-    redCardsDetail: "Board fallback red-card market. Add a live stats provider to replace this line.",
-    redCardsOrigins: {
-      NO: origin,
-      YES: origin,
-    },
-    shotsOnTarget: {
-      OVER: shotsOver,
-      UNDER: shotsUnder,
-      point: shotsPoint,
-    },
-    shotsOnTargetDetail: `Board fallback shots-on-target line at ${shotsPoint.toFixed(1)}. Add a live stats provider to replace it.`,
-    shotsOnTargetOrigins: {
-      OVER: origin,
-      UNDER: origin,
-    },
-    yellowCards: {
-      OVER: yellowOver,
-      UNDER: yellowUnder,
-      point: yellowPoint,
-    },
-    yellowCardsDetail: `Board fallback yellow-card line at ${yellowPoint.toFixed(1)}. Add a live stats provider to replace it.`,
-    yellowCardsOrigins: {
-      OVER: origin,
-      UNDER: origin,
-    },
-  };
-}
-
-const fallbackTeamPlayersByKey = new Map(
-  Object.entries(fallbackTeamPlayers).map(([team, players]) => [canonicalTeamName(team), players]),
-);
-
-function slugToken(value) {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-}
-
-function fallbackPlayersForTeam(teamName) {
-  return fallbackTeamPlayersByKey.get(canonicalTeamName(teamName)) ?? [];
-}
-
-function buildFallbackPlayerProps(match) {
-  const origin = match.bookmaker || match.quotes?.[0]?.bookmaker || "GoonBet line";
-  const seed = stableHash(`${match.id}|${match.home}|${match.away}|players`);
-  const players = [
-    ...fallbackPlayersForTeam(match.home).map((player, index) => ({
-      ...player,
-      playerId: `${slugToken(match.home)}_${slugToken(player.name)}`,
-      side: "home",
-      team: match.home,
-      teamIndex: index,
-    })),
-    ...fallbackPlayersForTeam(match.away).map((player, index) => ({
-      ...player,
-      playerId: `${slugToken(match.away)}_${slugToken(player.name)}`,
-      side: "away",
-      team: match.away,
-      teamIndex: index,
-    })),
-  ];
-
-  const playerShotsOnTargetOptions = players.map((player, index) => {
-    const point = player.role === "attacker" ? (index % 2 === 0 ? 1.5 : 0.5) : 0.5;
-    const base =
-      player.role === "attacker" ? 1.66 : player.role === "midfielder" ? 2.02 : 2.55;
-    const price = roundOdds(base + ((seed + index) % 4) * 0.18);
-
-    return {
-      label: `${player.name} over ${point.toFixed(1)} shots on target`,
-      odds: price,
-      origin,
-      playerId: player.playerId,
-      playerName: player.name,
-      point,
-      selection: `${player.playerId}|SOT|${point.toFixed(1)}`,
-      team: player.team,
-    };
-  });
-
-  const playerBookedOptions = players.map((player, index) => {
-    const base =
-      player.role === "defender" ? 2.95 : player.role === "midfielder" ? 3.45 : 4.8;
-    const price = roundOdds(base + ((seed + index) % 4) * 0.28);
-
-    return {
-      label: `${player.name} to be booked`,
-      odds: price,
-      origin,
-      playerId: player.playerId,
-      playerName: player.name,
-      selection: `${player.playerId}|BOOKED`,
-      team: player.team,
-    };
-  });
-
-  return {
-    detail: "Fallback player props board. Add a live player-props feed to replace these lines.",
-    playerBookedOptions,
-    playerShotsOnTargetOptions,
-  };
 }
 
 function playerPropOptions(match, marketType) {
@@ -1343,7 +1223,7 @@ function marketConfig(match, marketType) {
     return {
       badge: "Match result",
       detail: match.oddsDetail,
-      emptyCopy: "Fixture loaded, but there are no live 1X2 prices yet.",
+      emptyCopy: "No coefficients available for match result on this match yet.",
       gridClass: "odds-grid",
       odds: match.odds,
       options: [
@@ -1361,7 +1241,7 @@ function marketConfig(match, marketType) {
     return {
       badge: point ? `Goals O/U ${point.toFixed(1)}` : "Goals O/U",
       detail: match.totalsDetail,
-      emptyCopy: "This bookmaker feed does not have a live over/under goals line for the match yet.",
+      emptyCopy: "No coefficients available for goals over/under on this match yet.",
       gridClass: "odds-grid totals-grid",
       line: point,
       odds: match.totals,
@@ -1379,7 +1259,7 @@ function marketConfig(match, marketType) {
     return {
       badge: point ? `Shots on target O/U ${point.toFixed(1)}` : "Shots on target",
       detail: match.shotsOnTargetDetail,
-      emptyCopy: "Shots-on-target pricing is not loaded for this match yet.",
+      emptyCopy: "No coefficients available for shots on target on this match yet.",
       gridClass: "odds-grid totals-grid",
       line: point,
       odds: match.shotsOnTarget,
@@ -1397,7 +1277,7 @@ function marketConfig(match, marketType) {
     return {
       badge: point ? `Yellow cards O/U ${point.toFixed(1)}` : "Yellow cards",
       detail: match.yellowCardsDetail,
-      emptyCopy: "Yellow-card pricing is not loaded for this match yet.",
+      emptyCopy: "No coefficients available for yellow cards on this match yet.",
       gridClass: "odds-grid totals-grid",
       line: point,
       odds: match.yellowCards,
@@ -1414,7 +1294,7 @@ function marketConfig(match, marketType) {
     return {
       badge: "Red cards",
       detail: match.redCardsDetail,
-      emptyCopy: "Red-card pricing is not loaded for this match yet.",
+      emptyCopy: "No coefficients available for red cards on this match yet.",
       gridClass: "odds-grid totals-grid",
       odds: match.redCards,
       options: [
@@ -1430,7 +1310,7 @@ function marketConfig(match, marketType) {
     return {
       badge: "Player shots on target",
       detail: match.playerPropsDetail,
-      emptyCopy: "Player shots-on-target props are not loaded for this match yet.",
+      emptyCopy: "No coefficients available for player shots on target on this match yet.",
       gridClass: "odds-grid player-prop-grid",
       options: match.playerShotsOnTargetOptions ?? [],
       prompt: "1. Choose one player line. 2. Enter a stake. 3. Press Place bet.",
@@ -1441,7 +1321,7 @@ function marketConfig(match, marketType) {
     return {
       badge: "Player to be booked",
       detail: match.playerPropsDetail,
-      emptyCopy: "Player booking props are not loaded for this match yet.",
+      emptyCopy: "No coefficients available for player bookings on this match yet.",
       gridClass: "odds-grid player-prop-grid",
       options: match.playerBookedOptions ?? [],
       prompt: "1. Choose one player. 2. Enter a stake. 3. Press Place bet.",
@@ -1546,6 +1426,7 @@ function renderFutureMarkets() {
     .map((future) => {
       const existingBet = findExistingBet(future.id, future.marketType);
       const draft = getBetDraft(future.id, future.marketType);
+      const hasCoefficients = future.options.length > 0;
 
       return `
         <article class="future-card">
@@ -1562,60 +1443,68 @@ function renderFutureMarkets() {
               <strong>${escapeHtml(marketBadge(future, future.marketType))}</strong>
               <span>${escapeHtml(future.oddsDetail)}</span>
             </div>
-            <div class="future-options">
-              ${future.options
-                .map(
-                  (option) => `
+            ${
+              hasCoefficients
+                ? `
+                  <div class="future-options">
+                    ${future.options
+                      .map(
+                        (option) => `
+                          <button
+                            class="odd-button ${draft.selection === option.selection ? "selected" : ""}"
+                            type="button"
+                            data-future-selection="true"
+                            data-match-id="${escapeHtml(future.id)}"
+                            data-market-type="${escapeHtml(future.marketType)}"
+                            data-selection="${escapeHtml(option.selection)}"
+                            ${selectionDisabled(future, future.marketType, option.selection, existingBet) ? "disabled" : ""}
+                          >
+                            <strong>${escapeHtml(option.label)}</strong>
+                            <span>${option.odds.toFixed(2)}</span>
+                            <span>Best from ${escapeHtml(option.origin)}</span>
+                          </button>
+                        `,
+                      )
+                      .join("")}
+                  </div>
+                  <div class="bet-action-bar">
+                    <label class="field" for="stake-${escapeHtml(future.id)}-${escapeHtml(future.marketType)}">
+                      <span>Stake</span>
+                      <input
+                        id="stake-${escapeHtml(future.id)}-${escapeHtml(future.marketType)}"
+                        type="number"
+                        min="10"
+                        max="${simpleConfig.maxStake}"
+                        value="${escapeHtml(draft.stake)}"
+                        data-future-stake="true"
+                        data-match-id="${escapeHtml(future.id)}"
+                        data-market-type="${escapeHtml(future.marketType)}"
+                      />
+                    </label>
                     <button
-                      class="odd-button ${draft.selection === option.selection ? "selected" : ""}"
+                      class="button primary"
                       type="button"
-                      data-future-selection="true"
+                      data-future-place="true"
                       data-match-id="${escapeHtml(future.id)}"
                       data-market-type="${escapeHtml(future.marketType)}"
-                      data-selection="${escapeHtml(option.selection)}"
-                      ${selectionDisabled(future, future.marketType, option.selection, existingBet) ? "disabled" : ""}
+                      ${canPlaceDraft(future, future.marketType, existingBet) ? "" : "disabled"}
                     >
-                      <strong>${escapeHtml(option.label)}</strong>
-                      <span>${option.odds.toFixed(2)}</span>
-                      <span>Best from ${escapeHtml(option.origin)}</span>
+                      Place bet
                     </button>
-                  `,
-                )
-                .join("")}
-            </div>
-            <div class="bet-action-bar">
-              <label class="field" for="stake-${escapeHtml(future.id)}-${escapeHtml(future.marketType)}">
-                <span>Stake</span>
-                <input
-                  id="stake-${escapeHtml(future.id)}-${escapeHtml(future.marketType)}"
-                  type="number"
-                  min="10"
-                  max="${simpleConfig.maxStake}"
-                  value="${escapeHtml(draft.stake)}"
-                  data-future-stake="true"
-                  data-match-id="${escapeHtml(future.id)}"
-                  data-market-type="${escapeHtml(future.marketType)}"
-                />
-              </label>
-              <button
-                class="button primary"
-                type="button"
-                data-future-place="true"
-                data-match-id="${escapeHtml(future.id)}"
-                data-market-type="${escapeHtml(future.marketType)}"
-                ${canPlaceDraft(future, future.marketType, existingBet) ? "" : "disabled"}
-              >
-                Place bet
-              </button>
-            </div>
+                  </div>
+                `
+                : `<div class="small-note">No coefficients available for this long-term market right now.</div>`
+            }
             <div class="small-note">
               ${
                 existingBet
                   ? `Already bet: ${escapeHtml(existingBet.selectionLabel)} at ${existingBet.odds.toFixed(2)}`
-                  : !state.account
+                : !state.account
                     ? "Log in first to place a long-term bet."
                     : marketLocked(future)
                       ? "This long-term market is locked now."
+                    : !hasCoefficients
+                      ? "No coefficients available for this long-term market right now."
                     : !draft.selection
                       ? "1. Choose your long-term pick. 2. Enter a stake. 3. Press Place bet."
                       : `Selected: ${escapeHtml(selectionLabel(future, draft.selection, future.marketType))}. Press Place bet to confirm.`
@@ -1663,6 +1552,8 @@ function renderMatchMarketSection(match, marketType) {
   const market = marketConfig(match, marketType);
   const existingBet = findExistingBet(match.id, marketType);
   const draft = getBetDraft(match.id, marketType);
+  const availableOptions = market.options.filter((option) => selectionPrice(match, marketType, option.selection));
+  const hasCoefficients = availableOptions.length > 0;
 
   return `
     <div class="market-section">
@@ -1670,64 +1561,70 @@ function renderMatchMarketSection(match, marketType) {
         <strong>${escapeHtml(market.badge)}</strong>
         <span>${escapeHtml(market.detail)}</span>
       </div>
-      <div class="${escapeHtml(market.gridClass)}">
-        ${market.options
-          .map((option) => {
-            const origin = option.origin ?? market.origins?.[option.selection];
-            const price = option.odds ?? market.odds?.[option.selection];
+      ${
+        hasCoefficients
+          ? `
+            <div class="${escapeHtml(market.gridClass)}">
+              ${availableOptions
+                .map((option) => {
+                  const origin = option.origin ?? market.origins?.[option.selection];
+                  const price = option.odds ?? market.odds?.[option.selection];
 
-            return `
+                  return `
+                    <button
+                      class="odd-button ${draft.selection === option.selection ? "selected" : ""}"
+                      type="button"
+                      data-selection="true"
+                      data-match-id="${escapeHtml(match.id)}"
+                      data-market-type="${escapeHtml(marketType)}"
+                      data-selection-value="${escapeHtml(option.selection)}"
+                      ${selectionDisabled(match, marketType, option.selection, existingBet) ? "disabled" : ""}
+                    >
+                      <strong>${escapeHtml(option.label)}</strong>
+                      <span>${price ? price.toFixed(2) : "No odds"}</span>
+                      <span>${origin ? `Best from ${escapeHtml(origin)}` : "Unavailable"}</span>
+                    </button>
+                  `;
+                })
+                .join("")}
+            </div>
+            <div class="bet-action-bar">
+              <label class="field" for="stake-${escapeHtml(match.id)}-${escapeHtml(marketType)}">
+                <span>Stake</span>
+                <input
+                  id="stake-${escapeHtml(match.id)}-${escapeHtml(marketType)}"
+                  type="number"
+                  min="10"
+                  max="${simpleConfig.maxStake}"
+                  value="${escapeHtml(draft.stake)}"
+                  data-stake-input="true"
+                  data-match-id="${escapeHtml(match.id)}"
+                  data-market-type="${escapeHtml(marketType)}"
+                />
+              </label>
               <button
-                class="odd-button ${draft.selection === option.selection ? "selected" : ""}"
+                class="button primary"
                 type="button"
-                data-selection="true"
+                data-place-bet="true"
                 data-match-id="${escapeHtml(match.id)}"
                 data-market-type="${escapeHtml(marketType)}"
-                data-selection-value="${escapeHtml(option.selection)}"
-                ${selectionDisabled(match, marketType, option.selection, existingBet) ? "disabled" : ""}
+                ${canPlaceDraft(match, marketType, existingBet) ? "" : "disabled"}
               >
-                <strong>${escapeHtml(option.label)}</strong>
-                <span>${price ? price.toFixed(2) : "No odds"}</span>
-                <span>${origin ? `Best from ${escapeHtml(origin)}` : "Unavailable"}</span>
+                Place bet
               </button>
-            `;
-          })
-          .join("")}
-      </div>
-      <div class="bet-action-bar">
-        <label class="field" for="stake-${escapeHtml(match.id)}-${escapeHtml(marketType)}">
-          <span>Stake</span>
-          <input
-            id="stake-${escapeHtml(match.id)}-${escapeHtml(marketType)}"
-            type="number"
-            min="10"
-            max="${simpleConfig.maxStake}"
-            value="${escapeHtml(draft.stake)}"
-            data-stake-input="true"
-            data-match-id="${escapeHtml(match.id)}"
-            data-market-type="${escapeHtml(marketType)}"
-          />
-        </label>
-        <button
-          class="button primary"
-          type="button"
-          data-place-bet="true"
-          data-match-id="${escapeHtml(match.id)}"
-          data-market-type="${escapeHtml(marketType)}"
-          ${canPlaceDraft(match, marketType, existingBet) ? "" : "disabled"}
-        >
-          Place bet
-        </button>
-      </div>
+            </div>
+          `
+          : `<div class="small-note">${escapeHtml(market.emptyCopy)}</div>`
+      }
       <div class="small-note">
         ${
           existingBet
             ? `Already bet: ${escapeHtml(existingBet.selectionLabel)} at ${existingBet.odds.toFixed(2)}`
-            : !state.account
+          : !state.account
               ? "Log in first to place a bet."
               : marketLocked(match)
                 ? "Betting is locked because kickoff has passed."
-                : !market.options.some((option) => selectionPrice(match, marketType, option.selection))
+                : !hasCoefficients
                   ? escapeHtml(market.emptyCopy)
                   : !draft.selection
                     ? escapeHtml(market.prompt)
@@ -1753,8 +1650,6 @@ function renderMatches() {
       const phase = matchPhase(match);
       const phaseCopy =
         phase === "LIVE" ? "Live now" : phase === "LOCKED" ? "Started" : "Tap to open markets";
-      const hasPlayerProps =
-        playerPropOptions(match, "player_shots_on_target").length || playerPropOptions(match, "player_booked").length;
 
       return `
         <article class="match-card ${expanded ? "expanded" : ""}">
@@ -1781,15 +1676,9 @@ function renderMatches() {
                   ${renderMatchMarketSection(match, "shots_on_target")}
                   ${renderMatchMarketSection(match, "yellow_cards")}
                   ${renderMatchMarketSection(match, "red_cards")}
-                  ${
-                    hasPlayerProps
-                      ? `
-                        <div class="match-section-label">Player specific bets</div>
-                        ${renderMatchMarketSection(match, "player_shots_on_target")}
-                        ${renderMatchMarketSection(match, "player_booked")}
-                      `
-                      : ""
-                  }
+                  <div class="match-section-label">Player specific bets</div>
+                  ${renderMatchMarketSection(match, "player_shots_on_target")}
+                  ${renderMatchMarketSection(match, "player_booked")}
                   ${quoteMarkup(match)}
                   <div class="small-note">One bet per market can be active on the same match.</div>
                 </div>
