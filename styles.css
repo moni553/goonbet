@@ -582,6 +582,10 @@ input {
 
 .player-prop-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-height: 24rem;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+  align-content: start;
 }
 
 .odd-button {

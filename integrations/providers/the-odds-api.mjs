@@ -345,6 +345,28 @@ export function buildTheOddsApiRequest({
   return url.toString();
 }
 
+export function buildTheOddsApiEventOddsRequest({
+  apiKey,
+  bookmaker = "",
+  eventId,
+  markets,
+  oddsFormat = "decimal",
+  region = "uk",
+  sportKey,
+}) {
+  const url = new URL(`${baseUrl}/sports/${sportKey}/events/${eventId}/odds`);
+  url.searchParams.set("apiKey", apiKey);
+  url.searchParams.set("regions", region);
+  url.searchParams.set("markets", markets);
+  url.searchParams.set("oddsFormat", oddsFormat);
+
+  if (bookmaker) {
+    url.searchParams.set("bookmakers", bookmaker);
+  }
+
+  return url.toString();
+}
+
 export function buildTheOddsApiSportsRequest({ apiKey, all = true }) {
   const url = new URL(`${baseUrl}/sports`);
   url.searchParams.set("apiKey", apiKey);
@@ -456,6 +478,99 @@ export function normalizeTheOddsApiMatch(rawMatch) {
     providerEventId: rawMatch.id,
     sportKey: rawMatch.sport_key,
     sportTitle: rawMatch.sport_title ?? "Odds market",
+  };
+}
+
+function chooseBalancedAlternateTotal(outcomes) {
+  const groupedByPoint = new Map();
+
+  outcomes.forEach((outcome) => {
+    const side = String(outcome?.name || "").trim().toUpperCase();
+    const point = Number(outcome?.point);
+    const price = Number(outcome?.price);
+
+    if (!Number.isFinite(point) || !Number.isFinite(price) || price <= 0) {
+      return;
+    }
+
+    if (side !== "OVER" && side !== "UNDER") {
+      return;
+    }
+
+    const bucket = groupedByPoint.get(point) ?? { OVER: null, UNDER: null, point };
+    bucket[side] = price;
+    groupedByPoint.set(point, bucket);
+  });
+
+  return Array.from(groupedByPoint.values())
+    .filter((bucket) => Number.isFinite(bucket.OVER) && Number.isFinite(bucket.UNDER))
+    .sort((left, right) => {
+      const leftBalance = Math.abs(left.OVER - left.UNDER);
+      const rightBalance = Math.abs(right.OVER - right.UNDER);
+      if (leftBalance !== rightBalance) {
+        return leftBalance - rightBalance;
+      }
+
+      const leftMeanDistance = Math.abs((left.OVER + left.UNDER) / 2 - 1.95);
+      const rightMeanDistance = Math.abs((right.OVER + right.UNDER) / 2 - 1.95);
+      if (leftMeanDistance !== rightMeanDistance) {
+        return leftMeanDistance - rightMeanDistance;
+      }
+
+      return left.point - right.point;
+    })[0] ?? null;
+}
+
+export function normalizeTheOddsApiExtraMatchMarkets(rawEvent) {
+  const bookmaker = rawEvent?.bookmakers?.[0];
+  const bookmakerTitle = bookmaker?.title ?? bookmaker?.key ?? "Unknown bookmaker";
+  const markets = bookmaker?.markets ?? [];
+
+  const cardsMarket = markets.find((market) => market.key === "alternate_totals_cards");
+  const selectedCardsLine = cardsMarket ? chooseBalancedAlternateTotal(cardsMarket.outcomes ?? []) : null;
+
+  const playerBookedMarket = markets.find((market) => market.key === "player_to_receive_card");
+  const playerBookedOptions = (playerBookedMarket?.outcomes ?? [])
+    .filter((outcome) => String(outcome?.name || "").trim().toUpperCase() === "YES")
+    .map((outcome) => {
+      const playerName = extractOutcomeLabel(outcome);
+      const odds = Number(outcome?.price);
+      if (!playerName || !Number.isFinite(odds) || odds <= 0) {
+        return null;
+      }
+
+      return {
+        label: `${playerName} to be booked`,
+        odds,
+        origin: bookmakerTitle,
+        playerName,
+        selection: `${slugSelection(playerName)}|BOOKED`,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.odds - right.odds || left.label.localeCompare(right.label));
+
+  return {
+    playerBookedOptions,
+    playerPropsDetail: playerBookedOptions.length
+      ? `Live player booking coefficients from ${bookmakerTitle}.`
+      : null,
+    yellowCards: selectedCardsLine
+      ? {
+          OVER: selectedCardsLine.OVER,
+          UNDER: selectedCardsLine.UNDER,
+          point: selectedCardsLine.point,
+        }
+      : null,
+    yellowCardsDetail: selectedCardsLine
+      ? `Live yellow-card total from ${bookmakerTitle} at ${selectedCardsLine.point.toFixed(1)}.`
+      : null,
+    yellowCardsOrigins: selectedCardsLine
+      ? {
+          OVER: bookmakerTitle,
+          UNDER: bookmakerTitle,
+        }
+      : null,
   };
 }
 

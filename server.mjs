@@ -5,9 +5,19 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildFootballDataCompetitionFeed, fetchFootballDataJson, normalizeFootballDataMatch } from "./integrations/providers/football-data.mjs";
 import {
+  buildPinnacleGuestRequest,
+  defaultPinnacleGuestConfig,
+  fetchPinnacleGuestJson,
+  loadPinnaclePublicApiConfig,
+  normalizePinnacleFutureMarket,
+  normalizePinnacleMatchOdds,
+} from "./integrations/providers/pinnacle-guest.mjs";
+import {
+  buildTheOddsApiEventOddsRequest,
   buildTheOddsApiRequest,
   buildTheOddsApiSportsRequest,
   fetchTheOddsApiJson,
+  normalizeTheOddsApiExtraMatchMarkets,
   normalizeTheOddsApiFuturePayload,
   normalizeTheOddsApiMatch,
 } from "./integrations/providers/the-odds-api.mjs";
@@ -23,8 +33,11 @@ const matchCacheTtlMs = Number(
 const futureCacheTtlMs = Number(
   runtimeEnv.FUTURE_CACHE_TTL_SECONDS || simpleConfig.futureCacheTtlSeconds || runtimeEnv.CACHE_TTL_SECONDS || simpleConfig.cacheTtlSeconds,
 ) * 1000;
+const eventMarketMatchLimit = Number(runtimeEnv.ODDS_API_EVENT_MARKET_MATCH_LIMIT || 6);
+const oddsProviderId = String(runtimeEnv.ODDS_PROVIDER || "pinnacle_guest").toLowerCase();
 const matchLookbackDays = Number(runtimeEnv.MATCH_LOOKBACK_DAYS || simpleConfig.matchLookbackDays);
 const matchLookaheadDays = Number(runtimeEnv.MATCH_LOOKAHEAD_DAYS || simpleConfig.matchLookaheadDays);
+const pinnacleWorldCupLeagueId = Number(runtimeEnv.PINNACLE_WORLD_CUP_LEAGUE_ID || defaultPinnacleGuestConfig.leagueId);
 const tournamentSpecialsLockTime = runtimeEnv.TOURNAMENT_SPECIALS_LOCK_TIME || demoFutures[0]?.kickoff || "2026-07-01T12:00:00Z";
 const futuresEnabled = String(runtimeEnv.ENABLE_FUTURES ?? "true").toLowerCase() !== "false";
 
@@ -119,6 +132,136 @@ function canonicalTeamName(name) {
 
 function uniqueValues(items) {
   return Array.from(new Set(items.filter(Boolean)));
+}
+
+function explicitRuntimeSetting(key, fallback = "") {
+  return Object.prototype.hasOwnProperty.call(runtimeEnv, key) ? runtimeEnv[key] : fallback;
+}
+
+function configuredValue(value, fallback) {
+  return value == null || value === "" ? fallback : value;
+}
+
+function upcomingWindowMs() {
+  return matchLookaheadDays * 24 * 60 * 60 * 1000;
+}
+
+function pinnacleMatchShouldBeLoaded(kickoff) {
+  const time = new Date(kickoff).getTime();
+  if (!Number.isFinite(time)) {
+    return false;
+  }
+
+  const now = Date.now();
+  const recentGraceMs = 4 * 60 * 60 * 1000;
+  return time >= now - recentGraceMs && time <= now + upcomingWindowMs();
+}
+
+function isPinnacleBaseMatchup(matchup) {
+  return (
+    matchup?.type === "matchup" &&
+    matchup?.parentId == null &&
+    matchup?.hasMarkets &&
+    matchup?.startTime &&
+    pinnacleMatchShouldBeLoaded(matchup.startTime)
+  );
+}
+
+function specialDescriptionText(matchup) {
+  return normalizeLookupText([matchup?.special?.category, matchup?.special?.description].join(" "));
+}
+
+function participantNameLabel(matchup) {
+  const home = matchup?.participants?.find((participant) => participant.alignment === "home")?.name ?? "Home";
+  const away = matchup?.participants?.find((participant) => participant.alignment === "away")?.name ?? "Away";
+  return `${home} vs ${away}`;
+}
+
+function indexPinnacleSpecialMatchups(rawMatchups) {
+  const lookup = new Map();
+
+  (rawMatchups ?? [])
+    .filter((matchup) => matchup?.type === "special" && matchup?.parentId)
+    .forEach((matchup) => {
+      const existing = lookup.get(matchup.parentId) ?? {};
+      const description = specialDescriptionText(matchup);
+
+      if (description.includes("player to be booked")) {
+        existing.playerBooked = matchup;
+      } else if (description.includes("either team to get a red card")) {
+        existing.redCards = matchup;
+      }
+
+      lookup.set(matchup.parentId, existing);
+    });
+
+  return lookup;
+}
+
+function discoverPinnacleFutureMatchups(rawMatchups) {
+  const futures = {
+    topScorer: null,
+    winner: null,
+  };
+
+  (rawMatchups ?? [])
+    .filter((matchup) => matchup?.type === "special" && !matchup?.parentId)
+    .forEach((matchup) => {
+      const description = specialDescriptionText(matchup);
+      if (!futures.winner && /world cup 2026 winner|world cup winner/.test(description)) {
+        futures.winner = matchup;
+      } else if (!futures.topScorer && /tournament top goalscorer|top goalscorer|top scorer|golden boot/.test(description)) {
+        futures.topScorer = matchup;
+      }
+    });
+
+  return futures;
+}
+
+async function resolvePinnacleGuestConfig(notes = []) {
+  const manualApiKey = runtimeEnv.PINNACLE_API_KEY || runtimeEnv.PINNACLE_PUBLIC_API_KEY || "";
+  const manualApiVersion = runtimeEnv.PINNACLE_API_VERSION || "";
+  const manualGuestRoot = runtimeEnv.PINNACLE_GUEST_ROOT || "";
+  let discovered = defaultPinnacleGuestConfig;
+
+  if (String(runtimeEnv.PINNACLE_USE_PUBLIC_CONFIG ?? "true").toLowerCase() !== "false") {
+    try {
+      discovered = {
+        ...discovered,
+        ...(await loadPinnaclePublicApiConfig()),
+      };
+    } catch (error) {
+      notes.push(`Pinnacle public config fallback used: ${error.message}.`);
+    }
+  }
+
+  return {
+    apiKey: configuredValue(manualApiKey, discovered.apiKey),
+    apiVersion: configuredValue(manualApiVersion, discovered.apiVersion),
+    guestRoot: configuredValue(manualGuestRoot, discovered.guestRoot),
+  };
+}
+
+async function fetchPinnacleLeagueMatchups(config) {
+  const url = buildPinnacleGuestRequest({
+    apiVersion: config.apiVersion,
+    guestRoot: config.guestRoot,
+    path: `leagues/${pinnacleWorldCupLeagueId}/matchups`,
+  });
+
+  const data = await fetchPinnacleGuestJson(url, config.apiKey);
+  return Array.isArray(data) ? data : [];
+}
+
+async function fetchPinnacleMatchupMarkets(matchupId, config) {
+  const url = buildPinnacleGuestRequest({
+    apiVersion: config.apiVersion,
+    guestRoot: config.guestRoot,
+    path: `matchups/${matchupId}/markets/straight`,
+  });
+
+  const data = await fetchPinnacleGuestJson(url, config.apiKey);
+  return Array.isArray(data) ? data : [];
 }
 
 function futureKeyCandidates(marketType, baseSportKey) {
@@ -298,7 +441,7 @@ async function loadFixtureFeed() {
   };
 }
 
-async function loadOddsFeed() {
+async function loadTheOddsApiOddsFeed() {
   const notes = [];
 
   if (!runtimeEnv.THE_ODDS_API_KEY) {
@@ -321,9 +464,12 @@ async function loadOddsFeed() {
     });
 
     const data = await fetchTheOddsApiJson(url);
+    const matches = (data ?? []).map(normalizeTheOddsApiMatch);
+    const enrichedMatches = await enrichMatchesWithEventMarkets(matches, notes);
+
     return {
       provider: "The Odds API",
-      matches: (data ?? []).map(normalizeTheOddsApiMatch),
+      matches: enrichedMatches,
       notes,
     };
   } catch (error) {
@@ -334,6 +480,137 @@ async function loadOddsFeed() {
       notes,
     };
   }
+}
+
+async function loadPinnacleGuestOddsFeed() {
+  const notes = [];
+
+  try {
+    const config = await resolvePinnacleGuestConfig(notes);
+    const rawMatchups = await fetchPinnacleLeagueMatchups(config);
+    const specialsByParentId = indexPinnacleSpecialMatchups(rawMatchups);
+    const baseMatchups = rawMatchups.filter(isPinnacleBaseMatchup);
+
+    const settledMatches = await Promise.all(
+      baseMatchups.map(async (matchup) => {
+        const specials = specialsByParentId.get(matchup.id) ?? {};
+        const [mainResult, playerBookedResult, redCardResult] = await Promise.allSettled([
+          fetchPinnacleMatchupMarkets(matchup.id, config),
+          specials.playerBooked ? fetchPinnacleMatchupMarkets(specials.playerBooked.id, config) : Promise.resolve([]),
+          specials.redCards ? fetchPinnacleMatchupMarkets(specials.redCards.id, config) : Promise.resolve([]),
+        ]);
+
+        if (mainResult.status !== "fulfilled") {
+          notes.push(`${participantNameLabel(matchup)} Pinnacle price fetch failed: ${mainResult.reason?.message || mainResult.reason}.`);
+          return null;
+        }
+
+        if (playerBookedResult.status !== "fulfilled" && specials.playerBooked) {
+          notes.push(`${participantNameLabel(matchup)} Pinnacle player-booking fetch failed: ${playerBookedResult.reason?.message || playerBookedResult.reason}.`);
+        }
+
+        if (redCardResult.status !== "fulfilled" && specials.redCards) {
+          notes.push(`${participantNameLabel(matchup)} Pinnacle red-card fetch failed: ${redCardResult.reason?.message || redCardResult.reason}.`);
+        }
+
+        return normalizePinnacleMatchOdds({
+          matchup,
+          markets: mainResult.value,
+          playerBookedMatchup: specials.playerBooked ?? null,
+          playerBookedMarkets: playerBookedResult.status === "fulfilled" ? playerBookedResult.value : [],
+          redCardMatchup: specials.redCards ?? null,
+          redCardMarkets: redCardResult.status === "fulfilled" ? redCardResult.value : [],
+        });
+      }),
+    );
+
+    return {
+      provider: "Pinnacle",
+      matches: settledMatches.filter(Boolean),
+      notes,
+    };
+  } catch (error) {
+    notes.push(`Pinnacle guest feed failed: ${error.message}.`);
+    return {
+      provider: simpleConfig.fallbackOddsSourceLabel,
+      matches: [],
+      notes,
+    };
+  }
+}
+
+async function loadOddsFeed() {
+  if (oddsProviderId === "the_odds_api") {
+    const primary = await loadTheOddsApiOddsFeed();
+    if (primary.matches.length || !primary.notes.length) {
+      return primary;
+    }
+
+    const fallback = await loadPinnacleGuestOddsFeed();
+    return {
+      ...fallback,
+      notes: [...primary.notes, ...fallback.notes],
+    };
+  }
+
+  const primary = await loadPinnacleGuestOddsFeed();
+  if (primary.matches.length) {
+    return primary;
+  }
+
+  if (runtimeEnv.THE_ODDS_API_KEY) {
+    const fallback = await loadTheOddsApiOddsFeed();
+    return {
+      provider: fallback.matches.length ? fallback.provider : primary.provider,
+      matches: fallback.matches.length ? fallback.matches : primary.matches,
+      notes: [...primary.notes, ...fallback.notes],
+    };
+  }
+
+  return primary;
+}
+
+function upcomingExtraMarketTargets(matches) {
+  const now = Date.now();
+
+  return matches
+    .filter((match) => match?.providerEventId && new Date(match.kickoff).getTime() > now)
+    .sort((left, right) => new Date(left.kickoff) - new Date(right.kickoff))
+    .slice(0, Math.max(0, eventMarketMatchLimit));
+}
+
+async function enrichMatchesWithEventMarkets(matches, notes) {
+  const targets = upcomingExtraMarketTargets(matches);
+
+  if (!targets.length) {
+    return matches;
+  }
+
+  const extrasByEventId = new Map();
+
+  for (const target of targets) {
+    try {
+      const url = buildTheOddsApiEventOddsRequest({
+        apiKey: runtimeEnv.THE_ODDS_API_KEY,
+        bookmaker: runtimeEnv.ODDS_API_BOOKMAKERS || "",
+        eventId: target.providerEventId,
+        markets: "alternate_totals_cards,player_to_receive_card",
+        oddsFormat: "decimal",
+        region: runtimeEnv.ODDS_API_REGIONS || "eu",
+        sportKey: runtimeEnv.ODDS_API_SPORT_KEY || "soccer_fifa_world_cup",
+      });
+
+      const rawEvent = await fetchTheOddsApiJson(url);
+      extrasByEventId.set(target.providerEventId, normalizeTheOddsApiExtraMatchMarkets(rawEvent));
+    } catch (error) {
+      notes.push(`${target.home} vs ${target.away} event markets failed: ${error.message}.`);
+    }
+  }
+
+  return matches.map((match) => ({
+    ...match,
+    ...(extrasByEventId.get(match.providerEventId) ?? {}),
+  }));
 }
 
 async function loadOddsSportsCatalog() {
@@ -381,10 +658,10 @@ function mergeFutureCollections(existingMarkets, incomingMarkets) {
 async function fetchFutureMarketsForSport(sportKey, forcedMarketType = null) {
   const url = buildTheOddsApiRequest({
     apiKey: runtimeEnv.THE_ODDS_API_KEY,
-    bookmaker: runtimeEnv.ODDS_API_FUTURES_BOOKMAKERS || runtimeEnv.ODDS_API_BOOKMAKERS || "",
+    bookmaker: explicitRuntimeSetting("ODDS_API_FUTURES_BOOKMAKERS", runtimeEnv.ODDS_API_BOOKMAKERS || ""),
     market: "outrights",
     oddsFormat: "decimal",
-    region: runtimeEnv.ODDS_API_FUTURES_REGIONS || runtimeEnv.ODDS_API_REGIONS || "eu",
+    region: explicitRuntimeSetting("ODDS_API_FUTURES_REGIONS", runtimeEnv.ODDS_API_REGIONS || "eu"),
     sportKey,
   });
 
@@ -395,7 +672,7 @@ async function fetchFutureMarketsForSport(sportKey, forcedMarketType = null) {
   });
 }
 
-async function loadFutureFeed() {
+async function loadTheOddsApiFutureFeed() {
   const notes = [];
 
   if (!runtimeEnv.THE_ODDS_API_KEY) {
@@ -448,6 +725,73 @@ async function loadFutureFeed() {
     notes,
     provider: "The Odds API",
   };
+}
+
+async function loadPinnacleGuestFutureFeed() {
+  const notes = [];
+
+  try {
+    const config = await resolvePinnacleGuestConfig(notes);
+    const rawMatchups = await fetchPinnacleLeagueMatchups(config);
+    const futures = discoverPinnacleFutureMatchups(rawMatchups);
+    const futureTargets = [futures.winner, futures.topScorer].filter(Boolean);
+
+    const settledMarkets = await Promise.all(
+      futureTargets.map(async (matchup) => {
+        try {
+          const markets = await fetchPinnacleMatchupMarkets(matchup.id, config);
+          return normalizePinnacleFutureMarket({ matchup, markets });
+        } catch (error) {
+          notes.push(`${matchup?.special?.description || "Pinnacle future"} failed: ${error.message}.`);
+          return null;
+        }
+      }),
+    );
+
+    return {
+      markets: settledMarkets.filter(Boolean),
+      notes,
+      provider: "Pinnacle",
+    };
+  } catch (error) {
+    notes.push(`Pinnacle future feed failed: ${error.message}.`);
+    return {
+      markets: [],
+      notes,
+      provider: simpleConfig.fallbackOddsSourceLabel,
+    };
+  }
+}
+
+async function loadFutureFeed() {
+  if (oddsProviderId === "the_odds_api") {
+    const primary = await loadTheOddsApiFutureFeed();
+    if (primary.markets.length || !primary.notes.length) {
+      return primary;
+    }
+
+    const fallback = await loadPinnacleGuestFutureFeed();
+    return {
+      ...fallback,
+      notes: [...primary.notes, ...fallback.notes],
+    };
+  }
+
+  const primary = await loadPinnacleGuestFutureFeed();
+  if (primary.markets.length) {
+    return primary;
+  }
+
+  if (runtimeEnv.THE_ODDS_API_KEY) {
+    const fallback = await loadTheOddsApiFutureFeed();
+    return {
+      markets: fallback.markets.length ? fallback.markets : primary.markets,
+      notes: [...primary.notes, ...fallback.notes],
+      provider: fallback.markets.length ? fallback.provider : primary.provider,
+    };
+  }
+
+  return primary;
 }
 
 function bestOddsDetail(oddsMatch) {
@@ -515,8 +859,16 @@ function makeMatchRecord(base, oddsMatch) {
     totals: oddsMatch?.totals ?? { OVER: null, UNDER: null, point: null },
     totalsDetail: bestTotalsDetail(oddsMatch),
     totalsOrigins: oddsMatch?.totalsOrigins ?? { OVER: null, UNDER: null },
+    playerBookedOptions: oddsMatch?.playerBookedOptions ?? [],
+    playerPropsDetail: oddsMatch?.playerPropsDetail ?? null,
+    redCards: oddsMatch?.redCards ?? { NO: null, YES: null },
+    redCardsDetail: oddsMatch?.redCardsDetail ?? null,
+    redCardsOrigins: oddsMatch?.redCardsOrigins ?? { NO: null, YES: null },
     weekId,
     weekLabel,
+    yellowCards: oddsMatch?.yellowCards ?? { OVER: null, UNDER: null, point: null },
+    yellowCardsDetail: oddsMatch?.yellowCardsDetail ?? null,
+    yellowCardsOrigins: oddsMatch?.yellowCardsOrigins ?? { OVER: null, UNDER: null },
   };
 }
 

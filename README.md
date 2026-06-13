@@ -4,8 +4,8 @@ GoonBet is a simpler World Cup fake-money betting site:
 
 - public weekly match board
 - search by team, group, bookmaker, or week
-- real `1X2` coefficients when live provider keys are configured
-- optional tournament-special coefficients for World Cup winner and top scorer when the outright feed is enabled
+- real Pinnacle coefficients for `1X2`, goals over/under, player bookings, and red cards
+- real tournament-special coefficients for World Cup winner and top scorer
 - Supabase-backed bettor accounts with username-plus-password sign-in
 - one fake-money bet per user per match
 
@@ -13,9 +13,9 @@ GoonBet is a simpler World Cup fake-money betting site:
 
 - The site is public, so anyone with the link can open the match board.
 - Live fixtures come from `football-data.org`.
-- Live `1X2` coefficients come from `The Odds API`.
+- Live default coefficients come from Pinnacle's public guest feed.
 - The Node server merges those feeds and serves the board at `/api/matches`.
-- Tournament specials can be loaded from `The Odds API` outright markets and served at `/api/futures`, but they are off by default in the low-request setup.
+- Tournament specials come from Pinnacle's public guest feed and are served at `/api/futures`.
 - Supabase stores signed-in bettor profiles and fake-money bets.
 
 ## Recommended free-only setup
@@ -23,14 +23,14 @@ GoonBet is a simpler World Cup fake-money betting site:
 For a small private group, the safest low-cost setup is:
 
 - `football-data.org` for fixtures and results
-- `The Odds API` for match coefficients
-- slower server caching so your friends all hit the same cached response instead of burning API requests
-- tournament specials disabled unless you decide you really want them
+- Pinnacle guest feed for match coefficients and futures
+- slower server caching so your friends all hit the same cached response instead of hammering live endpoints
 
 Recommended environment values:
 
-- `ODDS_API_BOOKMAKERS=pinnacle`
-- `ENABLE_FUTURES=false`
+- `ODDS_PROVIDER=pinnacle_guest`
+- `PINNACLE_WORLD_CUP_LEAGUE_ID=2686`
+- `ENABLE_FUTURES=true`
 - `MATCH_LOOKAHEAD_DAYS=7`
 - `MATCH_CACHE_TTL_SECONDS=10800`
 - `FUTURE_CACHE_TTL_SECONDS=43200`
@@ -40,6 +40,7 @@ That means:
 - match data refreshes every 3 hours
 - long-term markets refresh every 12 hours if enabled
 - the board only looks one week ahead by default
+- direct Pinnacle player-booking, red-card, winner, and top-scorer markets stay live without needing a paid odds key
 
 ## Local setup
 
@@ -53,21 +54,30 @@ Required for real betting accounts:
 Required for live match data:
 
 - `FOOTBALL_DATA_API_TOKEN`
-- `THE_ODDS_API_KEY`
 
 Recommended for a small friends-only pool:
 
-- `ODDS_API_BOOKMAKERS=pinnacle`
-- `ENABLE_FUTURES=false`
+- `ODDS_PROVIDER=pinnacle_guest`
+- `PINNACLE_WORLD_CUP_LEAGUE_ID=2686`
+- `ENABLE_FUTURES=true`
 - `MATCH_LOOKAHEAD_DAYS=7`
 - `MATCH_CACHE_TTL_SECONDS=10800`
 - `FUTURE_CACHE_TTL_SECONDS=43200`
 
-Optional if your outright markets use separate sport keys:
+Optional fallback if you still want to keep `The Odds API` available:
 
+- `THE_ODDS_API_KEY`
 - `ODDS_API_OUTRIGHTS_SPORT_KEY`
 - `ODDS_API_WINNER_SPORT_KEY`
 - `ODDS_API_TOP_SCORER_SPORT_KEY`
+- `ODDS_API_FUTURES_BOOKMAKERS`
+
+Notes on the current Pinnacle-backed setup:
+
+- `1X2` and `goals O/U` come from direct Pinnacle match markets.
+- `player to be booked` and `either team to get a red card` come from direct Pinnacle special markets.
+- `world cup winner` and `top scorer` come from direct Pinnacle future markets.
+- `yellow card totals` and `shots on target` stay unavailable unless a real live feed exposes them for World Cup matches.
 
 Run the site:
 
