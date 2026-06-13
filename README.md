@@ -5,6 +5,7 @@ GoonBet is a simpler World Cup fake-money betting site:
 - public weekly match board
 - search by team, group, bookmaker, or week
 - real `1X2` coefficients when live provider keys are configured
+- live tournament-special coefficients for World Cup winner and top scorer when the outright feed is available
 - Supabase-backed bettor accounts with email-link sign-in
 - one fake-money bet per user per match
 
@@ -14,6 +15,7 @@ GoonBet is a simpler World Cup fake-money betting site:
 - Live fixtures come from `football-data.org`.
 - Live `1X2` coefficients come from `The Odds API`.
 - The Node server merges those feeds and serves the board at `/api/matches`.
+- Tournament specials are loaded from `The Odds API` outright markets and served at `/api/futures`.
 - Supabase stores signed-in bettor profiles and fake-money bets.
 
 ## Local setup
@@ -29,6 +31,12 @@ Required for live match data:
 
 - `FOOTBALL_DATA_API_TOKEN`
 - `THE_ODDS_API_KEY`
+
+Optional if your outright markets use separate sport keys:
+
+- `ODDS_API_OUTRIGHTS_SPORT_KEY`
+- `ODDS_API_WINNER_SPORT_KEY`
+- `ODDS_API_TOP_SCORER_SPORT_KEY`
 
 Run the site:
 

@@ -1,5 +1,75 @@
 const baseUrl = "https://api.the-odds-api.com/v4";
 
+const COMMON_NATIONAL_TEAMS = new Set(
+  [
+    "Argentina",
+    "Australia",
+    "Austria",
+    "Belgium",
+    "Bolivia",
+    "Bosnia and Herzegovina",
+    "Brazil",
+    "Bulgaria",
+    "Cameroon",
+    "Canada",
+    "Chile",
+    "China",
+    "Colombia",
+    "Costa Rica",
+    "Croatia",
+    "Czech Republic",
+    "Czechia",
+    "Denmark",
+    "Ecuador",
+    "Egypt",
+    "England",
+    "France",
+    "Germany",
+    "Ghana",
+    "Greece",
+    "Hungary",
+    "Iran",
+    "Iraq",
+    "Ireland",
+    "Israel",
+    "Italy",
+    "Ivory Coast",
+    "Jamaica",
+    "Japan",
+    "Mexico",
+    "Morocco",
+    "Netherlands",
+    "New Zealand",
+    "Nigeria",
+    "North Korea",
+    "Norway",
+    "Panama",
+    "Paraguay",
+    "Peru",
+    "Poland",
+    "Portugal",
+    "Romania",
+    "Saudi Arabia",
+    "Scotland",
+    "Senegal",
+    "Serbia",
+    "Slovakia",
+    "Slovenia",
+    "South Africa",
+    "South Korea",
+    "Spain",
+    "Sweden",
+    "Switzerland",
+    "Tunisia",
+    "Turkey",
+    "Ukraine",
+    "United States",
+    "Uruguay",
+    "Venezuela",
+    "Wales",
+  ].map((item) => normalizeLookupText(item)),
+);
+
 function mostCommonPoint(points) {
   const counts = new Map();
 
@@ -9,6 +79,226 @@ function mostCommonPoint(points) {
   });
 
   return Array.from(counts.entries()).sort((left, right) => right[1] - left[1])[0]?.[0] ?? null;
+}
+
+function normalizeLookupText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function slugSelection(value) {
+  const slug = String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  return slug || "SELECTION";
+}
+
+function extractOutcomeLabel(outcome) {
+  return String(outcome?.description || outcome?.name || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function uniqueList(items) {
+  return Array.from(new Set(items.filter(Boolean)));
+}
+
+function optionLooksLikeTeam(label) {
+  const normalized = normalizeLookupText(label);
+  return Boolean(normalized) && COMMON_NATIONAL_TEAMS.has(normalized);
+}
+
+function optionLooksLikePlayer(label) {
+  const normalized = normalizeLookupText(label);
+  if (!normalized || optionLooksLikeTeam(label)) {
+    return false;
+  }
+
+  return normalized.split(" ").length >= 2;
+}
+
+function inferFutureMarketType(bucket, forcedMarketType = null) {
+  if (forcedMarketType) {
+    return forcedMarketType;
+  }
+
+  const labels = bucket.options.map((option) => option.label);
+  const teamLikeCount = labels.filter(optionLooksLikeTeam).length;
+  const playerLikeCount = labels.filter(optionLooksLikePlayer).length;
+  const text = normalizeLookupText(
+    [
+      bucket.eventTitle,
+      bucket.eventName,
+      bucket.eventDescription,
+      bucket.marketTitle,
+      bucket.marketName,
+      bucket.marketDescription,
+      bucket.marketKey,
+    ].join(" "),
+  );
+
+  if (/(top scorer|top goalscorer|golden boot|most goals|top goal scorer)/.test(text)) {
+    return "future_top_scorer";
+  }
+
+  if (/(winner|champion|to win|lift the trophy)/.test(text)) {
+    return "future_winner";
+  }
+
+  if (teamLikeCount >= Math.max(8, Math.ceil(labels.length * 0.45))) {
+    return "future_winner";
+  }
+
+  if (playerLikeCount >= Math.max(5, Math.ceil(labels.length * 0.45))) {
+    return "future_top_scorer";
+  }
+
+  if (/(world cup|outright)/.test(text) && teamLikeCount > playerLikeCount) {
+    return "future_winner";
+  }
+
+  return null;
+}
+
+function buildOutrightBucketKey(rawEvent, market) {
+  const eventId = rawEvent?.id || rawEvent?.key || rawEvent?.title || rawEvent?.name || "future-event";
+  const marketId =
+    market?.key || market?.title || market?.name || market?.description || rawEvent?.title || rawEvent?.name || "market";
+
+  return `${eventId}::${marketId}`;
+}
+
+function createOutrightBucket(rawEvent, market) {
+  return {
+    bookmakerTitles: new Set(),
+    eventDescription: rawEvent?.description ?? "",
+    eventName: rawEvent?.name ?? "",
+    eventTitle: rawEvent?.title ?? rawEvent?.sport_title ?? "",
+    kickoff: rawEvent?.commence_time ?? null,
+    marketDescription: market?.description ?? "",
+    marketKey: market?.key ?? "",
+    marketName: market?.name ?? "",
+    marketTitle: market?.title ?? "",
+    optionMap: new Map(),
+  };
+}
+
+function collectOutrightBuckets(rawPayload) {
+  const rawEvents = Array.isArray(rawPayload) ? rawPayload : rawPayload ? [rawPayload] : [];
+  const buckets = new Map();
+
+  rawEvents.forEach((rawEvent) => {
+    (rawEvent?.bookmakers ?? []).forEach((bookmaker) => {
+      (bookmaker?.markets ?? []).forEach((market) => {
+        const bucketKey = buildOutrightBucketKey(rawEvent, market);
+        const bucket = buckets.get(bucketKey) ?? createOutrightBucket(rawEvent, market);
+        bucket.bookmakerTitles.add(bookmaker?.title || bookmaker?.key || "Unknown bookmaker");
+        if (!bucket.kickoff && rawEvent?.commence_time) {
+          bucket.kickoff = rawEvent.commence_time;
+        }
+
+        (market?.outcomes ?? []).forEach((outcome) => {
+          const label = extractOutcomeLabel(outcome);
+          const odds = Number(outcome?.price);
+          if (!label || !Number.isFinite(odds) || odds <= 0) {
+            return;
+          }
+
+          const selection = slugSelection(label);
+          const option = {
+            label,
+            odds,
+            origin: bookmaker?.title || bookmaker?.key || "Unknown bookmaker",
+            selection,
+          };
+
+          const existing = bucket.optionMap.get(selection);
+          if (!existing || option.odds > existing.odds) {
+            bucket.optionMap.set(selection, option);
+          }
+        });
+
+        buckets.set(bucketKey, bucket);
+      });
+    });
+  });
+
+  return Array.from(buckets.values()).map((bucket) => ({
+    ...bucket,
+    bookmakerTitles: Array.from(bucket.bookmakerTitles),
+    options: Array.from(bucket.optionMap.values()).sort((left, right) => left.odds - right.odds || left.label.localeCompare(right.label)),
+  }));
+}
+
+function mergeFutureOptions(leftOptions, rightOptions) {
+  const optionMap = new Map();
+
+  [...leftOptions, ...rightOptions].forEach((option) => {
+    const existing = optionMap.get(option.selection);
+    if (!existing || option.odds > existing.odds) {
+      optionMap.set(option.selection, option);
+    }
+  });
+
+  return Array.from(optionMap.values()).sort((left, right) => left.odds - right.odds || left.label.localeCompare(right.label));
+}
+
+function summarizeFutureOdds(marketType, options, bookmakerTitles) {
+  const optionLabel = marketType === "future_winner" ? "teams" : "players";
+  const bookmakerLabel =
+    bookmakerTitles.length === 1 ? bookmakerTitles[0] : `${bookmakerTitles.length} bookmakers`;
+
+  return `Live ${optionLabel} board with ${options.length} options from ${bookmakerLabel}.`;
+}
+
+function buildFutureMarket(bucket, marketType, defaultKickoff) {
+  const bookmakerTitles = uniqueList(bucket.bookmakerTitles);
+  const options = bucket.options ?? [];
+  if (!options.length) {
+    return null;
+  }
+
+  return {
+    bookmaker: bookmakerTitles[0] ?? "No bookmaker yet",
+    bookmakerCount: bookmakerTitles.length,
+    id: marketType === "future_winner" ? "future-world-cup-winner" : "future-top-scorer",
+    kickoff: bucket.kickoff ?? defaultKickoff,
+    marketType,
+    oddsDetail: summarizeFutureOdds(marketType, options, bookmakerTitles),
+    oddsSource: "The Odds API",
+    options,
+    resultSelection: null,
+    status: "SCHEDULED",
+    subtitle:
+      marketType === "future_winner"
+        ? "Pick the country that lifts the trophy."
+        : "Pick the player who finishes with the most goals.",
+    title: marketType === "future_winner" ? "World Cup winner" : "Top scorer",
+  };
+}
+
+function mergeFutureMarkets(existing, incoming) {
+  const bookmakerTitles = uniqueList([existing.bookmaker, incoming.bookmaker]);
+  const options = mergeFutureOptions(existing.options ?? [], incoming.options ?? []);
+
+  return {
+    ...existing,
+    bookmaker: bookmakerTitles[0] ?? existing.bookmaker ?? incoming.bookmaker,
+    bookmakerCount: Math.max(existing.bookmakerCount ?? 0, incoming.bookmakerCount ?? 0, bookmakerTitles.length),
+    kickoff:
+      new Date(existing.kickoff).getTime() <= new Date(incoming.kickoff).getTime() ? existing.kickoff : incoming.kickoff,
+    oddsDetail: summarizeFutureOdds(existing.marketType, options, bookmakerTitles),
+    options,
+  };
 }
 
 export function buildTheOddsApiRequest({
@@ -29,6 +319,15 @@ export function buildTheOddsApiRequest({
     url.searchParams.set("bookmakers", bookmaker);
   }
 
+  return url.toString();
+}
+
+export function buildTheOddsApiSportsRequest({ apiKey, all = true }) {
+  const url = new URL(`${baseUrl}/sports`);
+  url.searchParams.set("apiKey", apiKey);
+  if (all) {
+    url.searchParams.set("all", "true");
+  }
   return url.toString();
 }
 
@@ -135,4 +434,25 @@ export function normalizeTheOddsApiMatch(rawMatch) {
     sportKey: rawMatch.sport_key,
     sportTitle: rawMatch.sport_title ?? "Odds market",
   };
+}
+
+export function normalizeTheOddsApiFuturePayload(rawPayload, { defaultKickoff, forcedMarketType = null } = {}) {
+  const futuresByType = new Map();
+
+  collectOutrightBuckets(rawPayload).forEach((bucket) => {
+    const marketType = inferFutureMarketType(bucket, forcedMarketType);
+    if (!marketType) {
+      return;
+    }
+
+    const market = buildFutureMarket(bucket, marketType, defaultKickoff);
+    if (!market) {
+      return;
+    }
+
+    const existing = futuresByType.get(market.marketType);
+    futuresByType.set(market.marketType, existing ? mergeFutureMarkets(existing, market) : market);
+  });
+
+  return Array.from(futuresByType.values());
 }

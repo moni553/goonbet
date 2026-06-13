@@ -62,6 +62,18 @@ function defaultMatchPayload(note) {
   };
 }
 
+function defaultFuturePayload(note) {
+  return {
+    markets: demoFutures.map(normalizeFutureMarket),
+    meta: {
+      lastUpdated: new Date().toISOString(),
+      notes: note ? [note] : [],
+      oddsProvider: simpleConfig.fallbackOddsSourceLabel,
+      usingDemoFallback: true,
+    },
+  };
+}
+
 function normalizeMatch(match) {
   return {
     bookmaker: match.bookmaker ?? "No bookmaker yet",
@@ -1033,7 +1045,7 @@ function renderFutureMarkets() {
             <div>
               <div class="small-note">${escapeHtml(formatKickoff(future.kickoff))} lock time</div>
               <h3>${escapeHtml(future.title)}</h3>
-              <div class="future-subline">${escapeHtml(future.subtitle)}</div>
+              <div class="future-subline">${escapeHtml(future.subtitle)} | ${future.options.length} live options</div>
             </div>
             <span class="tag">${escapeHtml(future.oddsSource)}</span>
           </div>
@@ -1738,8 +1750,16 @@ async function loadMatches() {
   recalculatePublicBoard();
 }
 
-function loadFutures() {
-  state.futures = demoFutures.map(normalizeFutureMarket);
+async function loadFutures() {
+  let result;
+
+  try {
+    result = await fetchJson("/api/futures");
+  } catch (error) {
+    result = defaultFuturePayload(`Fell back to demo futures because /api/futures failed: ${error.message}`);
+  }
+
+  state.futures = (result.markets ?? []).map(normalizeFutureMarket);
   recalculatePublicBoard();
 }
 
@@ -2005,8 +2025,7 @@ function renderApp() {
 
 async function start() {
   attachEvents();
-  loadFutures();
-  await loadMatches();
+  await Promise.all([loadFutures(), loadMatches()]);
   await setupSupabase();
   renderApp();
 }

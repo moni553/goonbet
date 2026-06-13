@@ -4,8 +4,14 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildFootballDataCompetitionFeed, fetchFootballDataJson, normalizeFootballDataMatch } from "./integrations/providers/football-data.mjs";
-import { buildTheOddsApiRequest, fetchTheOddsApiJson, normalizeTheOddsApiMatch } from "./integrations/providers/the-odds-api.mjs";
-import { demoMatches, simpleConfig } from "./data/simple-app-data.js";
+import {
+  buildTheOddsApiRequest,
+  buildTheOddsApiSportsRequest,
+  fetchTheOddsApiJson,
+  normalizeTheOddsApiFuturePayload,
+  normalizeTheOddsApiMatch,
+} from "./integrations/providers/the-odds-api.mjs";
+import { demoFutures, demoMatches, simpleConfig } from "./data/simple-app-data.js";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const runtimeEnv = loadRuntimeEnv();
@@ -14,6 +20,7 @@ const host = runtimeEnv.HOST || "0.0.0.0";
 const cacheTtlMs = Number(runtimeEnv.CACHE_TTL_SECONDS || simpleConfig.cacheTtlSeconds) * 1000;
 const matchLookbackDays = Number(runtimeEnv.MATCH_LOOKBACK_DAYS || simpleConfig.matchLookbackDays);
 const matchLookaheadDays = Number(runtimeEnv.MATCH_LOOKAHEAD_DAYS || simpleConfig.matchLookaheadDays);
+const tournamentSpecialsLockTime = runtimeEnv.TOURNAMENT_SPECIALS_LOCK_TIME || demoFutures[0]?.kickoff || "2026-07-01T12:00:00Z";
 
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
@@ -24,6 +31,12 @@ const mimeTypes = {
 };
 
 const matchCache = {
+  expiresAt: 0,
+  pending: null,
+  value: null,
+};
+
+const futureCache = {
   expiresAt: 0,
   pending: null,
   value: null,
@@ -66,6 +79,16 @@ function loadRuntimeEnv() {
   };
 }
 
+function normalizeLookupText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function canonicalTeamName(name) {
   const normalized = String(name || "")
     .normalize("NFD")
@@ -85,6 +108,77 @@ function canonicalTeamName(name) {
   ]);
 
   return aliases.get(normalized) ?? normalized;
+}
+
+function uniqueValues(items) {
+  return Array.from(new Set(items.filter(Boolean)));
+}
+
+function futureKeyCandidates(marketType, baseSportKey) {
+  if (marketType === "future_winner") {
+    return uniqueValues([
+      runtimeEnv.ODDS_API_WINNER_SPORT_KEY,
+      `${baseSportKey}_winner`,
+      `${baseSportKey}_outrights`,
+      "soccer_fifa_world_cup_winner",
+      "soccer_fifa_world_cup_outrights",
+    ]);
+  }
+
+  return uniqueValues([
+    runtimeEnv.ODDS_API_TOP_SCORER_SPORT_KEY,
+    `${baseSportKey}_top_scorer`,
+    `${baseSportKey}_top_goalscorer`,
+    `${baseSportKey}_golden_boot`,
+    "soccer_fifa_world_cup_top_scorer",
+    "soccer_fifa_world_cup_top_goalscorer",
+    "soccer_fifa_world_cup_golden_boot",
+  ]);
+}
+
+function futureDiscoveryScore(sport, marketType, baseSportKey) {
+  const text = normalizeLookupText([sport?.key, sport?.title, sport?.description].join(" "));
+  const normalizedBase = normalizeLookupText(baseSportKey).replace(/\s+/g, "_");
+  let score = 0;
+
+  if (sport?.active) {
+    score += 1;
+  }
+
+  if (sport?.has_outrights) {
+    score += 2;
+  }
+
+  if (String(sport?.key || "").includes(baseSportKey) || text.includes(normalizedBase.replaceAll("_", " "))) {
+    score += 4;
+  }
+
+  if (text.includes("world cup")) {
+    score += 3;
+  }
+
+  if (marketType === "future_winner" && /(winner|champion|outright|to win)/.test(text)) {
+    score += 5;
+  }
+
+  if (marketType === "future_top_scorer" && /(top scorer|top goalscorer|golden boot|most goals|goal scorer)/.test(text)) {
+    score += 6;
+  }
+
+  return score;
+}
+
+function discoverFutureSportKeys(sports, marketType, baseSportKey) {
+  const catalogKeys = (sports ?? [])
+    .map((sport) => ({
+      key: sport?.key,
+      score: futureDiscoveryScore(sport, marketType, baseSportKey),
+    }))
+    .filter((item) => item.key && item.score >= 5)
+    .sort((left, right) => right.score - left.score)
+    .map((item) => item.key);
+
+  return uniqueValues([...futureKeyCandidates(marketType, baseSportKey), ...catalogKeys]);
 }
 
 function startOfWeekUtc(input) {
@@ -227,6 +321,120 @@ async function loadOddsFeed() {
   }
 }
 
+async function loadOddsSportsCatalog() {
+  const url = buildTheOddsApiSportsRequest({
+    apiKey: runtimeEnv.THE_ODDS_API_KEY,
+    all: true,
+  });
+
+  const data = await fetchTheOddsApiJson(url);
+  return Array.isArray(data) ? data : [];
+}
+
+function mergeFutureCollections(existingMarkets, incomingMarkets) {
+  const merged = new Map(existingMarkets.map((market) => [market.marketType, market]));
+
+  incomingMarkets.forEach((market) => {
+    const existing = merged.get(market.marketType);
+    if (!existing) {
+      merged.set(market.marketType, market);
+      return;
+    }
+
+    const optionMap = new Map();
+    [...existing.options, ...market.options].forEach((option) => {
+      const current = optionMap.get(option.selection);
+      if (!current || option.odds > current.odds) {
+        optionMap.set(option.selection, option);
+      }
+    });
+
+    const options = Array.from(optionMap.values()).sort((left, right) => left.odds - right.odds || left.label.localeCompare(right.label));
+    merged.set(market.marketType, {
+      ...existing,
+      bookmakerCount: Math.max(existing.bookmakerCount ?? 0, market.bookmakerCount ?? 0),
+      kickoff:
+        new Date(existing.kickoff).getTime() <= new Date(market.kickoff).getTime() ? existing.kickoff : market.kickoff,
+      oddsDetail: market.oddsDetail || existing.oddsDetail,
+      options,
+    });
+  });
+
+  return Array.from(merged.values());
+}
+
+async function fetchFutureMarketsForSport(sportKey, forcedMarketType = null) {
+  const url = buildTheOddsApiRequest({
+    apiKey: runtimeEnv.THE_ODDS_API_KEY,
+    bookmaker: runtimeEnv.ODDS_API_FUTURES_BOOKMAKERS || runtimeEnv.ODDS_API_BOOKMAKERS || "",
+    market: "outrights",
+    oddsFormat: "decimal",
+    region: runtimeEnv.ODDS_API_FUTURES_REGIONS || runtimeEnv.ODDS_API_REGIONS || "eu",
+    sportKey,
+  });
+
+  const data = await fetchTheOddsApiJson(url);
+  return normalizeTheOddsApiFuturePayload(data, {
+    defaultKickoff: tournamentSpecialsLockTime,
+    forcedMarketType,
+  });
+}
+
+async function loadFutureFeed() {
+  const notes = [];
+
+  if (!runtimeEnv.THE_ODDS_API_KEY) {
+    notes.push("THE_ODDS_API_KEY is not configured.");
+    return {
+      markets: [],
+      notes,
+      provider: simpleConfig.fallbackOddsSourceLabel,
+    };
+  }
+
+  const baseSportKey = runtimeEnv.ODDS_API_OUTRIGHTS_SPORT_KEY || runtimeEnv.ODDS_API_SPORT_KEY || "soccer_fifa_world_cup";
+  let markets = [];
+
+  try {
+    markets = mergeFutureCollections(markets, await fetchFutureMarketsForSport(baseSportKey));
+  } catch (error) {
+    notes.push(`The Odds API outrights feed failed: ${error.message}.`);
+  }
+
+  const missingMarketTypes = ["future_winner", "future_top_scorer"].filter(
+    (marketType) => !markets.some((market) => market.marketType === marketType),
+  );
+
+  if (missingMarketTypes.length) {
+    try {
+      const sportsCatalog = await loadOddsSportsCatalog();
+
+      for (const marketType of missingMarketTypes) {
+        const candidateKeys = discoverFutureSportKeys(sportsCatalog, marketType, baseSportKey).filter((key) => key !== baseSportKey);
+        for (const sportKey of candidateKeys) {
+          try {
+            const discoveredMarkets = await fetchFutureMarketsForSport(sportKey, marketType);
+            if (discoveredMarkets.length) {
+              markets = mergeFutureCollections(markets, discoveredMarkets);
+              break;
+            }
+          } catch (error) {
+            notes.push(`${sportKey} failed for ${marketType}: ${error.message}.`);
+          }
+        }
+      }
+    } catch (error) {
+      notes.push(`The Odds API sports catalog failed: ${error.message}.`);
+    }
+  }
+
+  return {
+    markets,
+    notes,
+    provider: "The Odds API",
+  };
+}
+
 function bestOddsDetail(oddsMatch) {
   if (!oddsMatch) {
     return "No live bookmaker prices matched this fixture yet.";
@@ -365,6 +573,18 @@ function demoMatchPayload(notes) {
   };
 }
 
+function demoFuturePayload(notes) {
+  return {
+    markets: demoFutures,
+    meta: {
+      lastUpdated: new Date().toISOString(),
+      notes,
+      oddsProvider: simpleConfig.fallbackOddsSourceLabel,
+      usingDemoFallback: true,
+    },
+  };
+}
+
 async function buildMatchPayload() {
   const fixtureFeed = await loadFixtureFeed();
   const oddsFeed = await loadOddsFeed();
@@ -404,6 +624,26 @@ async function buildMatchPayload() {
   };
 }
 
+async function buildFuturePayload() {
+  const futureFeed = await loadFutureFeed();
+  const notes = [...futureFeed.notes];
+
+  if (!futureFeed.markets.length) {
+    notes.push("Using demo fallback because no live outright market returned data.");
+    return demoFuturePayload(notes);
+  }
+
+  return {
+    markets: futureFeed.markets,
+    meta: {
+      lastUpdated: new Date().toISOString(),
+      notes,
+      oddsProvider: futureFeed.provider,
+      usingDemoFallback: false,
+    },
+  };
+}
+
 async function getCachedMatchPayload(forceRefresh = false) {
   const now = Date.now();
 
@@ -430,10 +670,43 @@ async function getCachedMatchPayload(forceRefresh = false) {
   return matchCache.pending;
 }
 
+async function getCachedFuturePayload(forceRefresh = false) {
+  const now = Date.now();
+
+  if (!forceRefresh && futureCache.value && futureCache.expiresAt > now) {
+    return futureCache.value;
+  }
+
+  if (futureCache.pending) {
+    return futureCache.pending;
+  }
+
+  futureCache.pending = buildFuturePayload()
+    .then((payload) => {
+      futureCache.value = payload;
+      futureCache.expiresAt = Date.now() + cacheTtlMs;
+      futureCache.pending = null;
+      return payload;
+    })
+    .catch((error) => {
+      futureCache.pending = null;
+      throw error;
+    });
+
+  return futureCache.pending;
+}
+
 async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/matches") {
     const refresh = url.searchParams.get("refresh") === "1";
     const payload = await getCachedMatchPayload(refresh);
+    sendJson(response, 200, payload);
+    return true;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/futures") {
+    const refresh = url.searchParams.get("refresh") === "1";
+    const payload = await getCachedFuturePayload(refresh);
     sendJson(response, 200, payload);
     return true;
   }
